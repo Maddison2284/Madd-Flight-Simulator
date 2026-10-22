@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import * as C from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import "./style.css";
+import { modelAttitude } from "./attitude";
 import { spawn, step, clamp, type Flight } from "./physics";
 import { TouchControls, type TouchAxes } from "./TouchControls";
 import { Cockpit } from "./Cockpit";
@@ -121,11 +122,7 @@ function App() {
         const a = flight.current;
         return C.Transforms.headingPitchRollQuaternion(
           C.Cartesian3.fromDegrees(a.lon, a.lat, a.alt),
-          new C.HeadingPitchRoll(
-            C.Math.toRadians(a.heading - 90),
-            C.Math.toRadians(a.pitch),
-            C.Math.toRadians(-a.roll),
-          ),
+          modelAttitude(a.heading, a.pitch, a.roll),
         );
       }, false),
       model: {
