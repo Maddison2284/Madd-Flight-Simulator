@@ -40,8 +40,8 @@ Click the 3D view after interacting with inputs to focus flight controls.
 
 | Key | Action |
 | --- | --- |
-| Arrow down / S | Pitch up |
-| Arrow up / W | Pitch down |
+| Arrow down / W | Pull nose up (aircraft-relative) |
+| Arrow up / S | Push nose down (aircraft-relative) |
 | Arrow left / A, Arrow right / D | Roll left / right |
 | Q / E | Yaw left / right |
 | + (or =) / − | Increase / decrease throttle |
@@ -84,3 +84,13 @@ Touch flight controls appear automatically on touch devices, including iPads. Us
 Run `npm run test:touch` against the development server after installing Playwright Chromium. The test uses touch-enabled Chromium with real multi-touch input at phone portrait, phone landscape, and iPad-sized viewports. Physical iOS Safari hardware has not been tested.
 
 Full 360° rolls are supported in either direction. Hold left/right keyboard or touch-stick roll to continue through inverted flight; release to hold the current bank. Elevator and rudder remain relative to the aircraft while inverted. Pitch elevation remains limited to ±65° in this simplified simulator.
+
+### Phone flight view
+
+Phone flight mode defaults to a compact speed/altitude/heading/clearance strip, with extra readings behind **Gauges**. The decorative cockpit dashboard is omitted on phones to leave the scenery visible. Rotate to landscape for the widest view; **Landscape** requests fullscreen and orientation lock where supported. iPhone Safari may require manual rotation. Flight mode locks page scrolling and prevents joystick gestures from panning the page. The planner remains scrollable.
+
+**W** now pulls up and **S** pushes down about the aircraft’s own axis. Upright, W raises the nose; inverted, W points the nose toward the ground. The arrow-key and touch-stick aircraft-relative mappings are unchanged.
+
+### Arcade speed boost
+
+Choose a departure airspeed up to **2,000 knots**; speeds above 480 knots automatically enable Boost. During flight press **B** or tap **Boost** to toggle arcade thrust and a higher speed ceiling (about 2,100 knots). Raise throttle to accelerate. Switching Boost off decelerates gradually toward normal jet speeds. This mode is deliberately for fun rather than realistic Learjet performance.

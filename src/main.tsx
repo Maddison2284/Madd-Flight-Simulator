@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import * as C from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import "./style.css";
+import { keyboardControls } from "./controls";
 import { modelAttitude } from "./attitude";
 import { spawn, step, clamp, type Flight } from "./physics";
 import { TouchControls, type TouchAxes } from "./TouchControls";
@@ -62,6 +63,46 @@ function App() {
       window.matchMedia("(any-pointer: coarse)").matches ||
       navigator.maxTouchPoints > 0,
   );
+  const [gaugesExpanded, setGaugesExpanded] = useState(false);
+  const [orientationHint, setOrientationHint] = useState(
+    "Rotate your phone for a wider view.",
+  );
+  useEffect(() => {
+    if (!flying) return;
+    document.documentElement.classList.add("in-flight");
+    const preventPagePan = (event: TouchEvent) => {
+      if (!(event.target as HTMLElement)?.closest("input,select,.help"))
+        event.preventDefault();
+    };
+    document.addEventListener("touchmove", preventPagePan, { passive: false });
+    return () => {
+      document.documentElement.classList.remove("in-flight");
+      document.removeEventListener("touchmove", preventPagePan);
+    };
+  }, [flying]);
+  async function requestLandscape() {
+    try {
+      if (
+        !document.fullscreenElement &&
+        document.documentElement.requestFullscreen
+      )
+        await document.documentElement.requestFullscreen();
+      const orientation = screen.orientation as ScreenOrientation & {
+        lock?: (value: string) => Promise<void>;
+      };
+      if (orientation?.lock) {
+        await orientation.lock("landscape");
+        setOrientationHint("Landscape requested. Rotate your phone if needed.");
+      } else
+        setOrientationHint(
+          "Rotate your phone sideways; this browser cannot lock orientation.",
+        );
+    } catch {
+      setOrientationHint(
+        "Rotate your phone sideways; this browser cannot lock orientation.",
+      );
+    }
+  }
   const selected = useRef(location);
   selected.current = location;
   const lastSearch = useRef(0);
@@ -179,6 +220,10 @@ function App() {
           ];
         setCam(camera.current);
       }
+      if (k === "b") {
+        flight.current = { ...flight.current, boost: !flight.current.boost };
+        setF({ ...flight.current });
+      }
       if (k === "p") {
         paused.current = !paused.current;
         setPause(paused.current);
@@ -224,25 +269,15 @@ function App() {
           .catch(() => {})
           .finally(() => (pending.current = false));
       }
-      const k = keys.current;
+      const keyboard = keyboardControls(keys.current);
       if (!paused.current)
         flight.current = step(
           a,
           {
-            pitch:
-              Number(k.has("arrowdown") || k.has("s")) -
-              Number(k.has("arrowup") || k.has("w")) +
-              touch.current.pitch,
-            roll:
-              Number(k.has("arrowright") || k.has("d")) -
-              Number(k.has("arrowleft") || k.has("a")) +
-              touch.current.roll,
-            yaw: clamp(
-              Number(k.has("e")) - Number(k.has("q")) + touch.current.yaw,
-              -1,
-              1,
-            ),
-            throttle: Number(k.has("=") || k.has("+")) - Number(k.has("-")),
+            pitch: clamp(keyboard.pitch + touch.current.pitch, -1, 1),
+            roll: clamp(keyboard.roll + touch.current.roll, -1, 1),
+            yaw: clamp(keyboard.yaw + touch.current.yaw, -1, 1),
+            throttle: keyboard.throttle,
           },
           dt,
           ground.current,
@@ -381,6 +416,7 @@ function App() {
       Math.max(alt * 0.3048, cached + 150),
       heading,
       speed * 0.514444,
+      speed > 480,
     );
     setF({ ...flight.current });
     active.current = true;
@@ -464,6 +500,7 @@ function App() {
     <main
       data-camera={flying ? cam : "planner"}
       data-touch={flying && touchVisible ? "true" : "false"}
+      data-gauges={gaugesExpanded ? "expanded" : "compact"}
     >
       <div ref={host} className="globe" />
       <header>
@@ -568,10 +605,10 @@ function App() {
                 <input
                   type="number"
                   min="110"
-                  max="480"
+                  max="2000"
                   value={speed}
                   onChange={(e) =>
-                    setSpeed(clamp(Number(e.target.value), 110, 480))
+                    setSpeed(clamp(Number(e.target.value), 110, 2000))
                   }
                 />
               </label>
@@ -605,7 +642,10 @@ function App() {
       ) : (
         <>
           <div className="flight-actions">
-            <button onClick={returnMap}>← Flight planner</button>
+            <button aria-label="Flight planner" onClick={returnMap}>
+              <span className="planner-full">← Flight planner</span>
+              <span className="planner-compact">Map</span>
+            </button>
             <button
               onClick={() => {
                 paused.current = !paused.current;
@@ -650,6 +690,62 @@ function App() {
           >
             Touch controls {touchVisible ? "on" : "off"}
           </button>
+          <button
+            className="desktop-boost"
+            aria-pressed={f.boost}
+            onClick={() => {
+              flight.current = {
+                ...flight.current,
+                boost: !flight.current.boost,
+              };
+              setF({ ...flight.current });
+            }}
+          >
+            Boost {f.boost ? "on" : "off"} · B
+          </button>
+          <div className="phone-actions">
+            <button
+              aria-label="Speed boost"
+              aria-pressed={f.boost}
+              onClick={() => {
+                flight.current = {
+                  ...flight.current,
+                  boost: !flight.current.boost,
+                };
+                setF({ ...flight.current });
+              }}
+            >
+              Boost
+            </button>
+            <button
+              aria-expanded={gaugesExpanded}
+              onClick={() => setGaugesExpanded(!gaugesExpanded)}
+            >
+              Gauges
+            </button>
+          </div>
+          <div className="phone-hud" aria-label="Compact flight instruments">
+            <span>
+              <small>KTS</small>
+              {Math.round(f.speed / 0.514444)}
+            </span>
+            <span>
+              <small>FT MSL</small>
+              {Math.round(f.alt / 0.3048).toLocaleString()}
+            </span>
+            <span>
+              <small>HDG</small>
+              {String(Math.round(f.heading) % 360).padStart(3, "0")}°
+            </span>
+            <span>
+              <small>FT AGL</small>
+              {Math.round((f.alt - ground.current) / 0.3048)}
+            </span>
+          </div>
+          <div className="rotate-hint">
+            <span>{orientationHint}</span>
+            <button onClick={requestLandscape}>Landscape</button>
+          </div>
           <div className="heading-strip">
             {String(Math.round(f.heading)).padStart(3, "0")}°
             <small>HEADING</small>
@@ -736,12 +832,13 @@ function App() {
             Click the flight view to focus. Keyboard controls work while flying.
           </p>
           {[
-            ["↑ / W", "Pitch down"],
-            ["↓ / S", "Pitch up"],
+            ["↑ / S", "Push nose down (aircraft-relative)"],
+            ["↓ / W", "Pull nose up (aircraft-relative)"],
             ["← → / A D", "Roll left / right"],
             ["Q / E", "Rudder left / right"],
             ["+ / −", "Increase / decrease throttle"],
             ["C", "Cycle chase / cockpit / wing / front"],
+            ["B", "Toggle arcade speed boost"],
             ["P", "Pause / resume"],
           ].map(([k, t]) => (
             <div key={k}>

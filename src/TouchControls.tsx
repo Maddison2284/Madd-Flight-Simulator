@@ -74,6 +74,13 @@ export function TouchControls({
       className="touch-controls"
       aria-label="Touch flight controls"
       onContextMenu={(e) => e.preventDefault()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerMove={(e) => {
+        if (e.cancelable && !(e.target as HTMLElement).closest("input"))
+          e.preventDefault();
+        e.stopPropagation();
+      }}
+      onPointerUp={(e) => e.stopPropagation()}
     >
       <div className="stick-group">
         <div

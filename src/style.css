@@ -1008,3 +1008,248 @@ main {
 .dispatch {
   max-width: calc(100% - 36px);
 }
+/* Lock the document during flight, including Safari's touch scroll/bounce path. */
+html.in-flight,
+html.in-flight body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html.in-flight main {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  height: 100dvh;
+}
+html.in-flight .globe {
+  touch-action: none;
+}
+.phone-actions,
+.phone-hud,
+.rotate-hint {
+  display: none;
+}
+@media (max-width: 600px), (max-height: 500px) and (max-width: 1100px) {
+  [data-touch="true"] header,
+  [data-touch="true"] footer,
+  [data-touch="true"] .heading-strip,
+  [data-touch="true"] .touch-toggle,
+  [data-touch="true"] .cockpit-art {
+    display: none;
+  }
+  [data-touch="true"] .flight-actions {
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    left: max(8px, env(safe-area-inset-left));
+    right: 80px;
+    flex-wrap: nowrap;
+    gap: 5px;
+    font-size: 10px;
+    height: 44px;
+  }
+  [data-touch="true"] .flight-actions button {
+    min-height: 44px;
+    padding: 8px;
+    white-space: nowrap;
+  }
+  [data-touch="true"] .flight-actions button:nth-of-type(3) {
+    display: none;
+  }
+  [data-touch="true"] .flight-actions select {
+    min-height: 44px;
+    max-width: 105px;
+    padding: 6px;
+    font-size: 11px;
+  }
+  [data-touch="true"] .phone-actions {
+    display: flex;
+    position: absolute;
+    z-index: 4;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right));
+  }
+  .phone-actions button,
+  .rotate-hint button {
+    min-height: 44px;
+    border: 1px solid #ffffff35;
+    background: #102632e8;
+    color: #ddf3ea;
+    border-radius: 6px;
+    font-size: 10px;
+    padding: 8px 12px;
+  }
+  [data-touch="true"] .phone-hud {
+    display: flex;
+    position: absolute;
+    top: calc(58px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    gap: 24px;
+    align-items: center;
+    background: #0b1b25b5;
+    border: 1px solid #ffffff18;
+    border-radius: 6px;
+    padding: 5px 14px;
+    pointer-events: none;
+    font: 15px monospace;
+    color: #c3f9d5;
+    max-width: 96%;
+    white-space: nowrap;
+  }
+  .phone-hud small {
+    font: 6px sans-serif;
+    letter-spacing: 1px;
+    display: block;
+    color: #9dbac6;
+    margin-bottom: 2px;
+  }
+  [data-touch="true"] .instruments,
+  [data-touch="true"][data-camera="cockpit"] .instruments {
+    display: none;
+  }
+  [data-touch="true"][data-gauges="expanded"] .instruments {
+    display: flex;
+    top: calc(103px + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    width: calc(100% - 24px);
+    max-width: 640px;
+    max-height: 110px;
+    padding: 6px 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: #0b1b25e5;
+    border: 1px solid #ffffff30;
+    box-shadow: none;
+  }
+  [data-touch="true"] .instruments .instrument {
+    min-width: 45px;
+  }
+  [data-touch="true"] .instruments .instrument strong {
+    font-size: 16px;
+    margin: 3px 0;
+  }
+  [data-touch="true"] .instruments .instrument small {
+    font-size: 6px;
+  }
+  [data-touch="true"] .instruments .attitude {
+    width: 35px;
+    height: 35px;
+  }
+  [data-touch="true"] .touch-controls {
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+  }
+  [data-touch="true"] .touch-stick {
+    width: 108px;
+    height: 108px;
+    background: radial-gradient(#213b4877, #091b2999);
+  }
+  [data-touch="true"] .touch-power {
+    width: 148px;
+    padding: 8px;
+    background: #0b1a25b5;
+  }
+  [data-touch="true"] .touch-controls small {
+    display: none;
+  }
+  [data-touch="true"] .touch-power label {
+    font-size: 7px;
+  }
+  [data-touch="true"] .touch-power b {
+    font-size: 14px;
+  }
+  [data-touch="true"] .touch-power input {
+    height: 40px;
+    margin: 0;
+  }
+  [data-touch="true"] .rudder-buttons button {
+    min-height: 44px;
+    font-size: 19px;
+  }
+  [data-touch="true"] .rudder-buttons span {
+    font-size: 8px;
+  }
+  [data-touch="true"] .cesium-viewer-bottom {
+    bottom: 2px !important;
+    max-width: 100%;
+    font-size: 7px;
+    right: 4px;
+  }
+  [data-touch="true"] .alert {
+    top: 43%;
+    padding: 10px;
+    font-size: 10px;
+    max-width: 80%;
+  }
+  [data-touch="true"] .reticle,
+  [data-touch="true"][data-camera="cockpit"] .reticle {
+    top: 46%;
+  }
+}
+@media (max-width: 600px) and (orientation: portrait) {
+  [data-touch="true"] .rotate-hint {
+    display: flex;
+    position: absolute;
+    z-index: 4;
+    top: calc(104px + env(safe-area-inset-top, 0px));
+    left: 12px;
+    right: 12px;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding-left: 10px;
+    background: #0b1b2580;
+    border-radius: 6px;
+    color: #c3d8df;
+    font-size: 9px;
+  }
+  [data-touch="true"][data-gauges="expanded"] .rotate-hint {
+    display: none;
+  }
+}
+.planner-compact {
+  display: none;
+}
+.desktop-boost {
+  position: absolute;
+  right: 38px;
+  top: 170px;
+  z-index: 4;
+  border: 1px solid #a4f4be50;
+  background: #13242de8;
+  border-radius: 6px;
+  color: #c4e5d4;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 11px;
+}
+button[aria-pressed="true"].desktop-boost,
+.phone-actions button[aria-pressed="true"] {
+  background: #295a42;
+  color: #d5ffe4;
+}
+@media (max-width: 600px), (max-height: 500px) and (max-width: 1100px) {
+  [data-touch="true"] .desktop-boost {
+    display: none;
+  }
+  [data-touch="true"] .planner-full {
+    display: none;
+  }
+  [data-touch="true"] .planner-compact {
+    display: inline;
+  }
+  [data-touch="true"] .flight-actions {
+    right: 132px;
+  }
+  [data-touch="true"] .phone-actions {
+    gap: 5px;
+  }
+  .phone-actions button {
+    padding: 8px;
+    font-size: 9px;
+  }
+}
