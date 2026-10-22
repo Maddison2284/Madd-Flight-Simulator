@@ -1,4 +1,4 @@
-"""Original CC0 generic business jet. Local +X forward, +Y right, +Z up."""
+"""Original CC0 generic business jet. Local +X forward, +Y left, +Z up."""
 import math,struct,json,pathlib
 verts=[]; inds=[]; colors=[]
 paint=(.9,.94,.98,1)
@@ -42,7 +42,7 @@ for side in [-1,1]:
  # Engine fan faces, positioned at the nacelle intakes.
  mesh([(-1.99,side*1.2+math.cos(i*math.pi/12)*.31,.5+math.sin(i*math.pi/12)*.31) for i in range(24)],[list(range(24))])
 # Navigation lights on both wing tips.
-for side,color in [(-1,(1,.08,.05,1)),(1,(.08,1,.4,1))]:
+for side,color in [(-1,(.08,1,.4,1)),(1,(1,.08,.05,1))]:
  paint=color
  mesh([(-1.5,side*8,.3),(-2,side*8,.3),(-1.8,side*8.05,.5)],[[0,1,2]])
 # Flat face normals make the low-poly surfaces light correctly.
