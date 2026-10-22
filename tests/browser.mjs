@@ -100,9 +100,19 @@ try {
   await page.getByRole("button", { name: /Enable Google 3D/ }).click();
   assert.match(
     await page.getByRole("alert").innerText(),
-    /needs VITE_GOOGLE_MAPS_API_KEY/,
+    /Enter your Map Tiles API key/,
   );
-  await page.getByRole("alert").click();
+  await page.getByRole("dialog", { name: "Google 3D settings" }).waitFor();
+  const keyInput = page.getByLabel("Google Maps API key");
+  await keyInput.fill("test-browser-key");
+  assert.equal(await keyInput.getAttribute("type"), "password");
+  assert.equal(
+    await page.evaluate(() =>
+      Object.values(localStorage).some((x) => x.includes("test-browser-key")),
+    ),
+    false,
+  );
+  await page.getByRole("button", { name: "Close Google settings" }).click();
   await page.screenshot({ path: "flight.png" });
   await page.getByRole("button", { name: /Flight planner/ }).click();
   await page.getByRole("button", { name: "Start flight" }).waitFor();

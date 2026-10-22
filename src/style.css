@@ -1253,3 +1253,62 @@ button[aria-pressed="true"].desktop-boost,
     font-size: 9px;
   }
 }
+.google-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: #04101899;
+  backdrop-filter: blur(7px);
+}
+.google-settings {
+  width: 420px;
+  max-width: 100%;
+  padding: 25px;
+  max-height: 90dvh;
+  overflow: auto;
+  touch-action: pan-y;
+}
+.google-settings h2 {
+  font:
+    26px "Space Grotesk",
+    sans-serif;
+  margin: 10px 0 16px;
+}
+.google-settings p {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #afc4cd;
+}
+.google-settings label {
+  font-size: 11px;
+  display: block;
+  margin: 20px 0 8px;
+}
+.google-settings input {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #ffffff30;
+  border-radius: 6px;
+  background: #ffffff09;
+  color: #eef;
+  font-size: 16px;
+}
+.google-settings small {
+  display: block;
+  font-size: 10px;
+  color: #83a2b3;
+  line-height: 1.5;
+  margin-top: 10px;
+}
+.google-settings .billing-note {
+  font-size: 10px;
+  color: #dbc29c;
+}
+.key-settings-button {
+  opacity: 0.8;
+  font-size: 9px !important;
+}
