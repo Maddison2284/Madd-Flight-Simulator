@@ -1,0 +1,12 @@
+CC0 1.0 Universal — Public Domain Dedication
+
+The original generic business jet model public/models/business-jet.glb and
+its generator scripts/create_model.py are dedicated to the public domain
+under CC0 1.0 Universal. To the extent possible under law, the authors waive
+all copyright and related or neighboring rights to these assets worldwide.
+You may copy, modify, distribute and use them, including commercially,
+without permission or attribution. No trademark or patent rights are granted.
+The work is provided without warranty.
+
+Full legal terms: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Suggested attribution (optional): MADD generic business jet, CC0.

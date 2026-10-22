@@ -1,0 +1,29 @@
+{
+  "name": "madd-flight-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
+    "model": "python3 scripts/create_model.py",
+    "test:browser": "node tests/browser.mjs"
+  },
+  "dependencies": {
+    "cesium": "^1.134.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "playwright": "^1.64.1",
+    "prettier": "^3.9.10",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^6.1.0",
+    "vite-plugin-static-copy": "^2.3.2"
+  }
+}
