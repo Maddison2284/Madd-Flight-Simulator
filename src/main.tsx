@@ -4,6 +4,7 @@ import * as C from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import "./style.css";
 import { spawn, step, clamp, type Flight } from "./physics";
+import { TouchControls, type TouchAxes } from "./TouchControls";
 import { Cockpit } from "./Cockpit";
 const cameraModes = ["chase", "cockpit", "wing", "front"] as const;
 const cameraLabels: Record<string, string> = {
@@ -26,6 +27,7 @@ function App() {
     viewer = useRef<C.Viewer | null>(null),
     flight = useRef<Flight>(initial),
     keys = useRef(new Set<string>()),
+    touch = useRef<TouchAxes>({ pitch: 0, roll: 0, yaw: 0 }),
     camera = useRef("chase"),
     active = useRef(false),
     paused = useRef(false),
@@ -54,6 +56,11 @@ function App() {
     [alt, setAlt] = useState(3000),
     [heading, setHeading] = useState(90),
     [speed, setSpeed] = useState(230);
+  const [touchVisible, setTouchVisible] = useState(
+    () =>
+      window.matchMedia("(any-pointer: coarse)").matches ||
+      navigator.maxTouchPoints > 0,
+  );
   const selected = useRef(location);
   selected.current = location;
   const lastSearch = useRef(0);
@@ -227,11 +234,17 @@ function App() {
           {
             pitch:
               Number(k.has("arrowdown") || k.has("s")) -
-              Number(k.has("arrowup") || k.has("w")),
+              Number(k.has("arrowup") || k.has("w")) +
+              touch.current.pitch,
             roll:
               Number(k.has("arrowright") || k.has("d")) -
-              Number(k.has("arrowleft") || k.has("a")),
-            yaw: Number(k.has("e")) - Number(k.has("q")),
+              Number(k.has("arrowleft") || k.has("a")) +
+              touch.current.roll,
+            yaw: clamp(
+              Number(k.has("e")) - Number(k.has("q")) + touch.current.yaw,
+              -1,
+              1,
+            ),
             throttle: Number(k.has("=") || k.has("+")) - Number(k.has("-")),
           },
           dt,
@@ -361,6 +374,7 @@ function App() {
     v.camera.cancelFlight();
     setError("");
     keys.current.clear();
+    touch.current = { pitch: 0, roll: 0, yaw: 0 };
     const p = C.Cartographic.fromDegrees(location.lon, location.lat);
     const cached = v.scene.globe.getHeight(p) || 0;
     ground.current = cached;
@@ -450,7 +464,10 @@ function App() {
     locate(a.lat, a.lon, "Current position");
   };
   return (
-    <main data-camera={flying ? cam : "planner"}>
+    <main
+      data-camera={flying ? cam : "planner"}
+      data-touch={flying && touchVisible ? "true" : "false"}
+    >
       <div ref={host} className="globe" />
       <header>
         <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
@@ -629,6 +646,13 @@ function App() {
               ))}
             </select>
           </div>
+          <button
+            className="touch-toggle"
+            aria-pressed={touchVisible}
+            onClick={() => setTouchVisible(!touchVisible)}
+          >
+            Touch controls {touchVisible ? "on" : "off"}
+          </button>
           <div className="heading-strip">
             {String(Math.round(f.heading)).padStart(3, "0")}°
             <small>HEADING</small>
@@ -637,6 +661,18 @@ function App() {
             ┈┈ <span>⌖</span> ┈┈
           </div>
           {cam === "cockpit" && <Cockpit flight={f} />}
+          {touchVisible && (
+            <TouchControls
+              throttle={f.throttle}
+              onAxes={(axes) => {
+                touch.current = axes;
+              }}
+              onThrottle={(value) => {
+                flight.current = { ...flight.current, throttle: value };
+                setF({ ...flight.current });
+              }}
+            />
+          )}
           <div className="instruments">
             <Instrument
               label="AIRSPEED"

@@ -76,3 +76,9 @@ npm run test:browser
 ```
 
 Or use an installed Chromium: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:browser`. Set `TEST_URL` to test a production preview. The smoke test mocks geocoder results and blocks OSM tile requests to verify offline scenery; it checks map selection, custom departure settings, keyboard flight, camera switching, pause, missing-key handling and viewport overflow. It does not validate live geocoder data or Google coverage. Screenshots are written to ignored `planner.png` and `flight.png`.
+
+## Phone and iPad controls
+
+Touch flight controls appear automatically on touch devices, including iPads. Use the **Touch controls** button to show or hide them on any device. Drag the left stick down to pitch up, up to pitch down, or sideways to roll. Hold the rudder buttons to yaw. Slide the throttle to set engine power. Stick and rudder support simultaneous touches and return to neutral on release, cancellation, or when the app loses focus. Throttle remains where you set it. Use the camera menu and pause button without a keyboard. Portrait and landscape layouts keep instruments clear of the controls.
+
+Run `npm run test:touch` against the development server after installing Playwright Chromium. The test uses touch-enabled Chromium with real multi-touch input at phone portrait, phone landscape, and iPad-sized viewports. Physical iOS Safari hardware has not been tested.
