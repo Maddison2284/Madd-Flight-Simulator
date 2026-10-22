@@ -61,7 +61,16 @@ export function step(
     clamp(c.yaw, -1, 1) * 10,
   );
   const pitch = clamp(f.pitch + (rates.pitch - f.pitch * 0.045) * dt, -65, 65);
-  const roll = clamp(f.roll + (rates.roll - f.roll * 0.12) * dt, -80, 80);
+  // Bank is unrestricted. Wrap only its representation; releasing the stick
+  // holds bank instead of automatically pulling an inverted aircraft upright.
+  const roll = wrap(f.roll + rates.roll * dt + 180) - 180;
+  const bank = roll * rad;
+  // A simplified coordinated turn, bounded through knife-edge and inverted
+  // attitudes. tan(bank) is singular at 90 degrees and flips sign beyond it.
+  const bankTurnRate =
+    (9.81 * Math.sin(bank)) /
+    (Math.max(Math.abs(Math.cos(bank)), 0.25) * Math.max(f.speed, 30)) /
+    rad;
   const stall = f.speed < 55;
   const speed = clamp(
     f.speed +
@@ -74,12 +83,7 @@ export function step(
     290,
   );
   const vs = speed * Math.sin(pitch * rad) - (stall ? (55 - speed) * 0.65 : 0);
-  const heading = wrap(
-    f.heading +
-      ((9.81 * Math.tan(roll * rad)) / Math.max(speed, 30) / rad +
-        rates.heading) *
-        dt,
-  );
+  const heading = wrap(f.heading + (bankTurnRate + rates.heading) * dt);
   const distance = speed * Math.cos(pitch * rad) * dt;
   const lat = clamp(
     f.lat + (distance * Math.cos(heading * rad)) / 111320,
