@@ -45,10 +45,10 @@ Click the 3D view after interacting with inputs to focus flight controls.
 | Arrow left / A, Arrow right / D | Roll left / right |
 | Q / E | Yaw left / right |
 | + (or =) / − | Increase / decrease throttle |
-| C | Chase / cockpit camera |
+| C | Cycle chase / cockpit / wing / front cameras |
 | P | Pause / resume |
 
-Banking produces a coordinated turn. Lift is simplified into pitch-driven vertical velocity, with speed-dependent stall sink, thrust, quadratic drag, gravity and roll/pitch damping. The instrument strip shows airspeed, altitude, vertical speed, throttle and terrain clearance. Cockpit view is an unobstructed first-person camera with an instrument overlay, not a modeled Learjet interior.
+Banking produces a coordinated turn. Lift is simplified into pitch-driven vertical velocity, with speed-dependent stall sink, thrust, quadratic drag, gravity and roll/pitch damping. The instrument strip shows airspeed, altitude, vertical speed, throttle and terrain clearance. Cockpit view includes original vector windshield framing, a shaded dashboard, standby gauges, live instruments and a bank-responsive yoke. It is a generic flight deck, not a modeled Learjet interior. Chase, left-wing and front cameras show the detailed jet exterior; select a view from the camera menu or cycle with C.
 
 Departure is immediate using available cached height; background elevation/3D surface sampling then raises altitude to at least 150 m above the reported surface when results arrive near the departure point. In-flight ground contact ends the flight and offers a restart. Ground height is refreshed from loaded Cesium terrain and sampled periodically when World Terrain is enabled. This is a recreational simulator: terrain loading is asynchronous, buildings are not a full collision mesh, and missing elevation data cannot establish safe real-world clearance. It is not suitable for aviation training or navigation.
 
