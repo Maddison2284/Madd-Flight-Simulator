@@ -7,6 +7,7 @@ export type Flight = {
   roll: number;
   speed: number;
   throttle: number;
+  boost: boolean;
   vs: number;
   crashed: boolean;
   stall: boolean;
@@ -26,6 +27,7 @@ export function spawn(
   alt: number,
   heading: number,
   speed: number,
+  boost = false,
 ): Flight {
   return {
     lat: clamp(lat, -89.9, 89.9),
@@ -34,7 +36,8 @@ export function spawn(
     heading: wrap(heading),
     pitch: 0,
     roll: 0,
-    speed: clamp(speed, 55, 250),
+    speed: clamp(speed, 55, boost ? 1100 : 250),
+    boost,
     throttle: 0.65,
     vs: 0,
     crashed: false,
@@ -74,13 +77,13 @@ export function step(
   const stall = f.speed < 55;
   const speed = clamp(
     f.speed +
-      (throttle * 8 -
+      (throttle * (f.boost ? 120 : 8) -
         1.5 -
-        0.00018 * f.speed * f.speed -
+        (f.boost ? 0.00004 : 0.00018) * f.speed * f.speed -
         9.81 * Math.sin(pitch * rad)) *
         dt,
     15,
-    290,
+    f.boost ? 1100 : Math.max(290, f.speed),
   );
   const vs = speed * Math.sin(pitch * rad) - (stall ? (55 - speed) * 0.65 : 0);
   const heading = wrap(f.heading + (bankTurnRate + rates.heading) * dt);

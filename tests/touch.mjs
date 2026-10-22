@@ -77,6 +77,34 @@ try {
       "090°\nHEADING",
       "simultaneous rudder and roll turn aircraft",
     );
+    const viewportBefore = await page.evaluate(() => ({
+      x: scrollX,
+      y: scrollY,
+      top: visualViewport?.offsetTop,
+      scale: visualViewport?.scale,
+    }));
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { ...point, y: point.y - 100 },
+        {
+          x: rudder.x + rudder.width / 2,
+          y: rudder.y + rudder.height / 2,
+          id: 2,
+        },
+      ],
+    });
+    await page.waitForTimeout(150);
+    assert.deepEqual(
+      await page.evaluate(() => ({
+        x: scrollX,
+        y: scrollY,
+        top: visualViewport?.offsetTop,
+        scale: visualViewport?.scale,
+      })),
+      viewportBefore,
+      "dragging controls cannot pan or zoom the viewport",
+    );
     await session.send("Input.dispatchTouchEvent", {
       type: "touchCancel",
       touchPoints: [],
@@ -100,10 +128,14 @@ try {
       "touch throttle adjusts",
     );
     await page.getByLabel("Camera view").selectOption("cockpit");
-    await page.getByLabel("Business jet cockpit interior").waitFor();
+    if (!(await page.locator(".phone-hud").isVisible()))
+      await page.getByLabel("Business jet cockpit interior").waitFor();
     await page.getByRole("button", { name: /Pause/ }).tap();
     await page.getByText("FLIGHT PAUSED", { exact: true }).waitFor();
-    const instrumentBox = await page.locator(".instruments").boundingBox();
+    const instrumentBox = await page
+      .locator(".phone-hud:visible,.instruments:visible")
+      .first()
+      .boundingBox();
     assert.ok(
       instrumentBox.y + instrumentBox.height <= box.y ||
         instrumentBox.x >= box.x + box.width,
@@ -116,6 +148,61 @@ try {
       false,
     );
     assert.deepEqual(errors, []);
+    assert.equal(
+      await page.evaluate(() => window.scrollY),
+      0,
+      "flight document cannot scroll",
+    );
+    assert.ok(
+      await page.evaluate(
+        () => document.documentElement.scrollHeight <= innerHeight + 1,
+      ),
+      "flight fits viewport vertically",
+    );
+    if (await page.locator(".phone-hud").isVisible()) {
+      await page
+        .getByRole("button", { name: "Speed boost", exact: true })
+        .tap();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Speed boost", exact: true })
+          .getAttribute("aria-pressed"),
+        "true",
+      );
+      await page
+        .getByRole("button", { name: "Speed boost", exact: true })
+        .tap();
+      assert.equal(
+        await page.locator(".instruments").isVisible(),
+        false,
+        "gauges collapsed on phones",
+      );
+      assert.equal(
+        await page.locator(".cockpit-art").isVisible(),
+        false,
+        "phone scenery is unobstructed",
+      );
+      const hud = await page.locator(".phone-hud").boundingBox();
+      assert.ok(hud.height < 50);
+      await page.getByRole("button", { name: "Gauges", exact: true }).tap();
+      await page.locator(".instruments").waitFor({ state: "visible" });
+      await page.getByRole("button", { name: "Gauges", exact: true }).tap();
+      await page.locator(".instruments").waitFor({ state: "hidden" });
+      if (viewport.width < viewport.height) {
+        await page.evaluate(() => {
+          document.documentElement.requestFullscreen = () =>
+            Promise.reject(new Error("unsupported"));
+        });
+        await page
+          .getByRole("button", { name: "Landscape", exact: true })
+          .tap();
+        await page.getByText(/this browser cannot lock orientation/).waitFor();
+        await page.setViewportSize({ width: 844, height: 390 });
+        await page.locator(".rotate-hint").waitFor({ state: "hidden" });
+        assert.equal(await page.locator(".phone-hud").isVisible(), true);
+        await page.setViewportSize(viewport);
+      }
+    }
     await page.screenshot({ path: `touch-${viewport.width}.png` });
     await page.close();
     console.log(`PASS touch controls ${viewport.width}×${viewport.height}`);
