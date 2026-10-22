@@ -50,9 +50,18 @@ export function step(
   if (f.crashed) return f;
   dt = clamp(dt, 0, 0.05);
   const throttle = clamp(f.throttle + c.throttle * dt * 0.25, 0, 1);
-  const pitch = clamp(f.pitch + (c.pitch * 18 - f.pitch * 0.045) * dt, -65, 65);
-  const roll = clamp(f.roll + (c.roll * 45 - f.roll * 0.12) * dt, -80, 80);
   const rad = Math.PI / 180;
+  // Pilot inputs are rotations about the aircraft's own axes. Convert body
+  // rates into heading/elevation/bank rates before moving in world space.
+  const rates = bodyRatesToEuler(
+    f.pitch,
+    f.roll,
+    clamp(c.roll, -1, 1) * 45,
+    clamp(c.pitch, -1, 1) * 18,
+    clamp(c.yaw, -1, 1) * 10,
+  );
+  const pitch = clamp(f.pitch + (rates.pitch - f.pitch * 0.045) * dt, -65, 65);
+  const roll = clamp(f.roll + (rates.roll - f.roll * 0.12) * dt, -80, 80);
   const stall = f.speed < 55;
   const speed = clamp(
     f.speed +
@@ -67,7 +76,8 @@ export function step(
   const vs = speed * Math.sin(pitch * rad) - (stall ? (55 - speed) * 0.65 : 0);
   const heading = wrap(
     f.heading +
-      ((9.81 * Math.tan(roll * rad)) / Math.max(speed, 30) / rad + c.yaw * 10) *
+      ((9.81 * Math.tan(roll * rad)) / Math.max(speed, 30) / rad +
+        rates.heading) *
         dt,
   );
   const distance = speed * Math.cos(pitch * rad) * dt;
@@ -97,5 +107,29 @@ export function step(
     vs,
     stall,
     crashed: alt <= ground + 3,
+  };
+}
+
+/** Right-handed aircraft body rates: roll right, pitch up, yaw right (deg/s).
+ * Heading is clockwise from north; elevation is positive above the horizon.
+ * Limits in step keep the Euler representation away from vertical singularity.
+ */
+export function bodyRatesToEuler(
+  pitch: number,
+  roll: number,
+  p: number,
+  q: number,
+  r: number,
+) {
+  const rad = Math.PI / 180,
+    phi = roll * rad,
+    theta = pitch * rad;
+  const sin = Math.sin(phi),
+    cos = Math.cos(phi);
+  const transverse = q * sin + r * cos;
+  return {
+    roll: p + transverse * Math.tan(theta),
+    pitch: q * cos - r * sin,
+    heading: transverse / Math.max(0.1, Math.cos(theta)),
   };
 }
