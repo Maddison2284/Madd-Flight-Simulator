@@ -23,9 +23,13 @@ for (const direction of [-1, 1])
     assert.ok(Math.abs(total - direction * 360) < 1e-6);
     assert.ok(Math.abs(f.roll) < 1e-6);
   });
-test("releasing roll input holds inverted bank", () => {
+test("releasing roll input gently levels inverted bank", () => {
   const f = { ...spawn(0, 0, 1000, 0, 120), roll: 170 };
-  assert.equal(step(f, neutral, 0.05, 0).roll, 170);
+  const next = step(f, neutral, 0.05, 0);
+  assert.ok(
+    next.roll < 170 && next.roll > 169,
+    "levels gradually, not instantly",
+  );
 });
 test("pulling up while inverted points the nose down", () => {
   const f = { ...spawn(0, 0, 1000, 0, 120), roll: -180 };

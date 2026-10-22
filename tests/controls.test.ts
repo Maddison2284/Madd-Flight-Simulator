@@ -8,11 +8,11 @@ for (const roll of [0, 180, -180])
     const w = step(f, keyboardControls(new Set(["w"])), 0.05, 0);
     const s = step(f, keyboardControls(new Set(["s"])), 0.05, 0);
     assert.ok(
-      roll === 0 ? w.pitch > 0 : w.pitch < 0,
-      "W pulls toward aircraft up, which points earthward inverted",
+      roll === 0 ? w.pitch < 0 : w.pitch > 0,
+      "W pushes toward aircraft down",
     );
     assert.ok(
-      roll === 0 ? s.pitch < 0 : s.pitch > 0,
-      "S pushes toward aircraft down",
+      roll === 0 ? s.pitch > 0 : s.pitch < 0,
+      "S pulls toward aircraft up",
     );
   });
