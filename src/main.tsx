@@ -3,6 +3,12 @@ import { createRoot } from "react-dom/client";
 import * as C from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import "./style.css";
+import {
+  computeExteriorCamera,
+  smoothExteriorCamera,
+  type ExteriorCameraPose,
+  type ExteriorCameraMode,
+} from "./camera";
 import { keyboardControls } from "./controls";
 import { modelAttitude } from "./attitude";
 import { spawn, step, clamp, type Flight } from "./physics";
@@ -245,15 +251,23 @@ function App() {
     window.addEventListener("blur", blur);
     let last = performance.now(),
       ui = 0,
-      terrainTime = 0;
+      terrainTime = 0,
+      accumulator = 0;
+    let previousCamera: ExteriorCameraPose | undefined;
     const tick = () => {
       const now = performance.now(),
-        dt = Math.min((now - last) / 1000, 0.05);
+        dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       plane.show = active.current && camera.current !== "cockpit";
       v.scene.screenSpaceCameraController.enableInputs = !active.current;
+      v.scene.screenSpaceCameraController.enableCollisionDetection =
+        !active.current;
       marker.show = !active.current;
-      if (!active.current) return;
+      if (!active.current) {
+        previousCamera = undefined;
+        accumulator = 0;
+        return;
+      }
       const a = flight.current;
       const cart = C.Cartographic.fromDegrees(a.lon, a.lat);
       const h = v.scene.globe.getHeight(cart);
@@ -279,53 +293,45 @@ function App() {
           .finally(() => (pending.current = false));
       }
       const keyboard = keyboardControls(keys.current);
-      if (!paused.current)
-        flight.current = step(
-          a,
-          {
-            pitch: clamp(keyboard.pitch + touch.current.pitch, -1, 1),
-            roll: clamp(keyboard.roll + touch.current.roll, -1, 1),
-            yaw: clamp(keyboard.yaw + touch.current.yaw, -1, 1),
-            throttle: keyboard.throttle,
-          },
-          dt,
-          ground.current,
-        );
-      const b = flight.current,
-        pos = C.Cartesian3.fromDegrees(b.lon, b.lat, b.alt),
-        transform = C.Transforms.headingPitchRollToFixedFrame(
-          pos,
-          new C.HeadingPitchRoll(C.Math.toRadians(b.heading), 0, 0),
-        );
+      if (!paused.current) {
+        accumulator += dt;
+        while (accumulator >= 1 / 120) {
+          flight.current = step(
+            flight.current,
+            {
+              pitch: clamp(keyboard.pitch + touch.current.pitch, -1, 1),
+              roll: clamp(keyboard.roll + touch.current.roll, -1, 1),
+              yaw: clamp(keyboard.yaw + touch.current.yaw, -1, 1),
+              throttle: keyboard.throttle,
+            },
+            1 / 120,
+            ground.current,
+          );
+          accumulator -= 1 / 120;
+        }
+      } else accumulator = 0;
+      // Viewer evaluates entity callbacks before this listener. Render camera
+      // from that same pre-step pose so fast motion cannot outrun the model.
+      const b = a;
       if (camera.current !== "cockpit") {
-        const destination = C.Matrix4.multiplyByPoint(
-          transform,
-          camera.current === "wing"
-            ? new C.Cartesian3(-32, -6, 8)
-            : camera.current === "front"
-              ? new C.Cartesian3(0, 42, 10)
-              : new C.Cartesian3(0, -42, 12),
-          new C.Cartesian3(),
+        const aspect =
+          v.scene.canvas.clientWidth / Math.max(1, v.scene.canvas.clientHeight);
+        const desired = computeExteriorCamera(
+          { ...b, mode: camera.current as ExteriorCameraMode },
+          aspect,
         );
-        const target = C.Cartesian3.add(
-          pos,
-          new C.Cartesian3(0, 0, 0),
-          new C.Cartesian3(),
-        );
-        const direction = C.Cartesian3.normalize(
-          C.Cartesian3.subtract(target, destination, new C.Cartesian3()),
-          new C.Cartesian3(),
-        );
+        previousCamera = smoothExteriorCamera(previousCamera, desired, dt);
         v.camera.setView({
-          destination,
+          destination: previousCamera.destination,
           orientation: {
-            direction,
-            up: C.Cartesian3.normalize(pos, new C.Cartesian3()),
+            direction: previousCamera.direction,
+            up: previousCamera.up,
           },
         });
       } else {
+        previousCamera = undefined;
         v.camera.setView({
-          destination: pos,
+          destination: C.Cartesian3.fromDegrees(b.lon, b.lat, b.alt),
           orientation: {
             heading: C.Math.toRadians(b.heading),
             pitch: C.Math.toRadians(b.pitch),
@@ -334,7 +340,7 @@ function App() {
         });
       }
       if (now - ui > 100) {
-        setF({ ...b });
+        setF({ ...flight.current });
         ui = now;
       }
     };
@@ -848,8 +854,8 @@ function App() {
             Click the flight view to focus. Keyboard controls work while flying.
           </p>
           {[
-            ["↑ / S", "Push nose down (aircraft-relative)"],
-            ["↓ / W", "Pull nose up (aircraft-relative)"],
+            ["↑ / W", "Push nose down (aircraft-relative)"],
+            ["↓ / S", "Pull nose up (aircraft-relative)"],
             ["← → / A D", "Roll left / right"],
             ["Q / E", "Rudder left / right"],
             ["+ / −", "Increase / decrease throttle"],

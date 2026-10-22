@@ -64,9 +64,14 @@ export function step(
     clamp(c.yaw, -1, 1) * 10,
   );
   const pitch = clamp(f.pitch + (rates.pitch - f.pitch * 0.045) * dt, -65, 65);
-  // Bank is unrestricted. Wrap only its representation; releasing the stick
-  // holds bank instead of automatically pulling an inverted aircraft upright.
-  const roll = wrap(f.roll + rates.roll * dt + 180) - 180;
+  // Gentle stabilization acts only after all attitude controls are released.
+  // Holding roll still allows unrestricted 360-degree maneuvers.
+  const handsOff =
+    Math.abs(c.roll) < 0.08 &&
+    Math.abs(c.pitch) < 0.08 &&
+    Math.abs(c.yaw) < 0.08;
+  const leveling = handsOff ? -clamp(f.roll * 0.14, -8, 8) : 0;
+  const roll = wrap(f.roll + (rates.roll + leveling) * dt + 180) - 180;
   const bank = roll * rad;
   // A simplified coordinated turn, bounded through knife-edge and inverted
   // attitudes. tan(bank) is singular at 90 degrees and flips sign beyond it.
