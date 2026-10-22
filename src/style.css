@@ -763,3 +763,248 @@ footer {
 .instruments {
   z-index: 2;
 }
+html,
+body {
+  overscroll-behavior: none;
+}
+main {
+  height: 100dvh;
+}
+.touch-toggle {
+  position: absolute;
+  right: 38px;
+  top: 120px;
+  z-index: 4;
+  background: #13242deb;
+  border: 1px solid #ffffff25;
+  border-radius: 6px;
+  padding: 12px;
+  color: #c4e5d4;
+  font-size: 11px;
+  min-height: 44px;
+}
+.touch-controls {
+  position: absolute;
+  z-index: 4;
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  left: max(18px, env(safe-area-inset-left));
+  right: max(18px, env(safe-area-inset-right));
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.stick-group,
+.touch-power {
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-stick {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 1px solid #a4f4be88;
+  background: radial-gradient(#213b48df, #091b29e8);
+  display: grid;
+  place-items: center;
+  position: relative;
+  touch-action: none;
+  box-shadow: inset 0 0 0 18px #0002;
+}
+.stick-cross {
+  position: absolute;
+  color: #aac7cb55;
+  font-size: 60px;
+  line-height: 1;
+  pointer-events: none;
+}
+.stick-knob {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border: 2px solid #a4f4be;
+  border-radius: 50%;
+  background: radial-gradient(at 35% 30%, #567984, #1c3441);
+  box-shadow: 0 5px 12px #0008;
+  pointer-events: none;
+}
+.touch-controls small {
+  display: block;
+  color: #b1c7cd;
+  font: 7px monospace;
+  letter-spacing: 1px;
+  text-align: center;
+  margin-top: 10px;
+  text-shadow: 0 1px 3px #000;
+}
+.touch-power {
+  width: 182px;
+  padding: 12px;
+  background: #0b1a25e8;
+  border: 1px solid #ffffff30;
+  border-radius: 10px;
+}
+.touch-power label {
+  font-size: 9px;
+  letter-spacing: 1px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.touch-power b {
+  color: #a4f4be;
+  font: 18px monospace;
+}
+.touch-power input {
+  width: 100%;
+  height: 44px;
+  accent-color: #a4f4be;
+  touch-action: none;
+  margin: 4px 0;
+}
+.rudder-buttons {
+  display: flex;
+  gap: 8px;
+}
+.rudder-buttons button {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid #a4f4be50;
+  border-radius: 6px;
+  background: #24404e;
+  color: #dcfff0;
+  font-size: 23px;
+  touch-action: none;
+}
+.rudder-buttons span {
+  display: block;
+  font-size: 9px;
+}
+.rudder-buttons button:active {
+  background: #39715a;
+}
+[data-touch="true"] .instruments,
+[data-touch="true"][data-camera="cockpit"] .instruments {
+  bottom: 250px;
+  max-width: 96%;
+  padding: 10px 16px;
+  gap: 18px;
+}
+[data-touch="true"] .yoke {
+  display: none;
+}
+@media (max-width: 800px) {
+  .touch-toggle {
+    top: 146px;
+    right: 15px;
+    padding: 8px;
+    font-size: 9px;
+  }
+  .touch-controls {
+    left: 12px;
+    right: 12px;
+  }
+  .touch-stick {
+    width: 122px;
+    height: 122px;
+  }
+  .touch-power {
+    width: 168px;
+  }
+  [data-touch="true"] .instruments,
+  [data-touch="true"][data-camera="cockpit"] .instruments {
+    bottom: 250px;
+    width: 94%;
+    gap: 8px;
+    padding: 8px;
+  }
+  .touch-controls small {
+    letter-spacing: 0;
+    font-size: 7px;
+  }
+  [data-touch="true"] .instrument {
+    min-width: 65px;
+  }
+  [data-touch="true"] .instrument strong {
+    font-size: 20px;
+  }
+  [data-touch="true"] .attitude {
+    width: 48px;
+    height: 48px;
+  }
+}
+@media (max-height: 550px) and (min-width: 600px) {
+  header {
+    height: 66px;
+    padding: 0 18px;
+  }
+  .brand small {
+    display: none;
+  }
+  .flight-actions {
+    top: 70px;
+    left: 15px;
+    right: auto;
+  }
+  .touch-toggle {
+    top: 70px;
+    right: 15px;
+  }
+  .heading-strip {
+    top: 70px;
+    left: auto;
+    right: 155px;
+    transform: none;
+    padding: 6px 12px;
+    font-size: 22px;
+  }
+  .touch-stick {
+    width: 110px;
+    height: 110px;
+  }
+  .touch-power {
+    width: 162px;
+    padding: 8px;
+  }
+  .touch-controls {
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  }
+  [data-touch="true"] .instruments,
+  [data-touch="true"][data-camera="cockpit"] .instruments {
+    bottom: 60px;
+    width: calc(100% - 370px);
+    max-width: 650px;
+    padding: 8px;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  [data-touch="true"] .instrument {
+    min-width: 55px;
+  }
+  [data-touch="true"] .instrument strong {
+    font-size: 17px;
+    margin: 3px 0;
+  }
+  [data-touch="true"] .instrument small {
+    font-size: 6px;
+  }
+  [data-touch="true"] .attitude {
+    width: 38px;
+    height: 38px;
+  }
+  .glareshield {
+    display: none;
+  }
+  .alert {
+    top: 40%;
+    padding: 10px;
+    font-size: 10px;
+  }
+}
+.dispatch {
+  max-width: calc(100% - 36px);
+}

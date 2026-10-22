@@ -9,7 +9,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
     "model": "python3 scripts/create_model.py",
-    "test:browser": "node tests/browser.mjs"
+    "test:browser": "node tests/browser.mjs",
+    "test:touch": "node tests/touch.mjs"
   },
   "dependencies": {
     "cesium": "^1.134.0",
