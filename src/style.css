@@ -648,3 +648,118 @@ input:focus-visible {
     font-size: 22px;
   }
 }
+/* Original cockpit artwork sits around the live scenery; all flight values stay live. */
+.flight-actions select {
+  background: #13242deb;
+  color: #d9edf2;
+  border: 1px solid #ffffff25;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  max-width: 130px;
+}
+.cockpit-art {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.windshield {
+  position: absolute;
+  width: 100%;
+  height: calc(100% - 46px);
+  inset: 0;
+}
+.glareshield {
+  position: absolute;
+  bottom: 30%;
+  left: 19%;
+  right: 19%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #b1c2cc;
+  font: 9px monospace;
+  letter-spacing: 2px;
+}
+.engine-light {
+  color: #a4f4be;
+}
+.yoke {
+  position: absolute;
+  width: 220px;
+  height: 103px;
+  bottom: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+[data-camera="cockpit"] .instruments {
+  bottom: 156px;
+  background: linear-gradient(#0d1c2a, #050d17);
+  border: 5px solid #2c3a45;
+  box-shadow:
+    0 0 0 2px #0a1119,
+    inset 0 0 25px #173a4c;
+  width: 72%;
+  justify-content: space-around;
+  gap: 14px;
+  padding: 16px 20px;
+}
+[data-camera="cockpit"] .instrument strong {
+  color: #b8f7d0;
+  font-family: monospace;
+  font-size: 27px;
+}
+[data-camera="cockpit"] .reticle {
+  top: 43%;
+}
+@media (max-width: 800px) {
+  .flight-actions {
+    gap: 5px;
+    flex-wrap: wrap;
+    right: 15px;
+  }
+  .flight-actions button {
+    padding: 9px;
+  }
+  .flight-actions select {
+    max-width: 105px;
+  }
+  [data-camera="cockpit"] .instruments {
+    width: 85%;
+    bottom: 150px;
+    padding: 10px;
+    gap: 9px;
+  }
+  [data-camera="cockpit"] .instrument strong {
+    font-size: 20px;
+  }
+  .glareshield {
+    bottom: 39%;
+    left: 12%;
+    right: 12%;
+    font-size: 7px;
+    letter-spacing: 0;
+  }
+  .glareshield > span:nth-child(2) {
+    display: none;
+  }
+  .yoke {
+    width: 170px;
+    height: 85px;
+  }
+  .heading-strip {
+    top: 165px;
+  }
+}
+header,
+.flight-actions,
+.heading-strip,
+footer {
+  z-index: 3;
+}
+.reticle {
+  z-index: 2;
+}
+.instruments {
+  z-index: 2;
+}

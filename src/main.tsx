@@ -4,6 +4,14 @@ import * as C from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import "./style.css";
 import { spawn, step, clamp, type Flight } from "./physics";
+import { Cockpit } from "./Cockpit";
+const cameraModes = ["chase", "cockpit", "wing", "front"] as const;
+const cameraLabels: Record<string, string> = {
+  chase: "Chase",
+  cockpit: "Cockpit",
+  wing: "Left wing",
+  front: "Front",
+};
 const initial = spawn(37.807, -122.475, 900, 90, 120);
 const presets = [
   ["San Francisco", 37.807, -122.475],
@@ -115,8 +123,8 @@ function App() {
       }, false),
       model: {
         uri: "/models/business-jet.glb",
-        minimumPixelSize: 45,
-        maximumScale: 10,
+        minimumPixelSize: 100,
+        maximumScale: 1,
       },
       show: false,
     });
@@ -157,7 +165,14 @@ function App() {
       keys.current.add(k);
       if (e.repeat) return;
       if (k === "c") {
-        camera.current = camera.current === "chase" ? "cockpit" : "chase";
+        camera.current =
+          cameraModes[
+            (cameraModes.indexOf(
+              camera.current as (typeof cameraModes)[number],
+            ) +
+              1) %
+              cameraModes.length
+          ];
         setCam(camera.current);
       }
       if (k === "p") {
@@ -177,7 +192,8 @@ function App() {
       const now = performance.now(),
         dt = Math.min((now - last) / 1000, 0.05);
       last = now;
-      plane.show = active.current && camera.current === "chase";
+      plane.show = active.current && camera.current !== "cockpit";
+      v.scene.screenSpaceCameraController.enableInputs = !active.current;
       marker.show = !active.current;
       if (!active.current) return;
       const a = flight.current;
@@ -227,10 +243,14 @@ function App() {
           pos,
           new C.HeadingPitchRoll(C.Math.toRadians(b.heading), 0, 0),
         );
-      if (camera.current === "chase") {
+      if (camera.current !== "cockpit") {
         const destination = C.Matrix4.multiplyByPoint(
           transform,
-          new C.Cartesian3(0, -85, 27),
+          camera.current === "wing"
+            ? new C.Cartesian3(-32, -6, 8)
+            : camera.current === "front"
+              ? new C.Cartesian3(0, 42, 10)
+              : new C.Cartesian3(0, -42, 12),
           new C.Cartesian3(),
         );
         const target = C.Cartesian3.add(
@@ -430,7 +450,7 @@ function App() {
     locate(a.lat, a.lon, "Current position");
   };
   return (
-    <main>
+    <main data-camera={flying ? cam : "planner"}>
       <div ref={host} className="globe" />
       <header>
         <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
@@ -582,12 +602,32 @@ function App() {
             </button>
             <button
               onClick={() => {
-                camera.current = cam === "chase" ? "cockpit" : "chase";
+                camera.current =
+                  cameraModes[
+                    (cameraModes.indexOf(cam as (typeof cameraModes)[number]) +
+                      1) %
+                      cameraModes.length
+                  ];
                 setCam(camera.current);
               }}
             >
-              {cam === "chase" ? "◉ Chase" : "◉ Cockpit"} <kbd>C</kbd>
+              {`◉ ${cameraLabels[cam]}`} <kbd>C</kbd>
             </button>
+            <select
+              aria-label="Camera view"
+              value={cam}
+              onChange={(e) => {
+                camera.current = e.target.value;
+                setCam(e.target.value);
+                e.target.blur();
+              }}
+            >
+              {cameraModes.map((mode) => (
+                <option key={mode} value={mode}>
+                  {cameraLabels[mode]}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="heading-strip">
             {String(Math.round(f.heading)).padStart(3, "0")}°
@@ -596,7 +636,7 @@ function App() {
           <div className="reticle">
             ┈┈ <span>⌖</span> ┈┈
           </div>
-          {cam === "cockpit" && <div className="cockpit-frame" />}
+          {cam === "cockpit" && <Cockpit flight={f} />}
           <div className="instruments">
             <Instrument
               label="AIRSPEED"
@@ -668,7 +708,7 @@ function App() {
             ["← → / A D", "Roll left / right"],
             ["Q / E", "Rudder left / right"],
             ["+ / −", "Increase / decrease throttle"],
-            ["C", "Chase / cockpit camera"],
+            ["C", "Cycle chase / cockpit / wing / front"],
             ["P", "Pause / resume"],
           ].map(([k, t]) => (
             <div key={k}>

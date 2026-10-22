@@ -84,6 +84,13 @@ try {
   );
   await page.keyboard.press("c");
   await page.getByRole("button", { name: /Cockpit/ }).waitFor();
+  await page.getByLabel("Business jet cockpit interior").waitFor();
+  await page.getByLabel("Camera view").selectOption("wing");
+  assert.equal(await page.locator("main").getAttribute("data-camera"), "wing");
+  await page.getByLabel("Camera view").selectOption("front");
+  assert.equal(await page.locator("main").getAttribute("data-camera"), "front");
+  await page.getByLabel("Camera view").selectOption("cockpit");
+  await page.locator("canvas").click({ position: { x: 900, y: 350 } });
   await page.keyboard.press("p");
   await page.getByText("FLIGHT PAUSED", { exact: true }).waitFor();
   await page.keyboard.press("p");
