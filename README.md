@@ -94,3 +94,7 @@ Phone flight mode defaults to a compact speed/altitude/heading/clearance strip, 
 ### Arcade speed boost
 
 Choose a departure airspeed up to **2,000 knots**; speeds above 480 knots automatically enable Boost. During flight press **B** or tap **Boost** to toggle arcade thrust and a higher speed ceiling (about 2,100 knots). Raise throttle to accelerate. Switching Boost off decelerates gradually toward normal jet speeds. This mode is deliberately for fun rather than realistic Learjet performance.
+
+### Enter a Google key in the app
+
+In the planner, select **Enable Google 3D** or **API key**, paste your Map Tiles API key, and choose **Load Google 3D**. This browser-session key requires no rebuild and is not saved to localStorage or the repository. Requests go directly from your browser to Google. The optional build-time `VITE_GOOGLE_MAPS_API_KEY` still supplies a default key; changes to that environment variable require a rebuild. Restrict the key to Map Tiles API and `https://madd-flight-simulator.gladball64.chatgpt.site/*`.

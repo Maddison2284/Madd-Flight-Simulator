@@ -63,6 +63,11 @@ function App() {
       window.matchMedia("(any-pointer: coarse)").matches ||
       navigator.maxTouchPoints > 0,
   );
+  const [googleKey, setGoogleKey] = useState(
+    import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
+  );
+  const [googleSettings, setGoogleSettings] = useState(false);
+  const [photoLoading, setPhotoLoading] = useState(false);
   const [gaugesExpanded, setGaugesExpanded] = useState(false);
   const [orientationHint, setOrientationHint] = useState(
     "Rotate your phone for a wider view.",
@@ -71,7 +76,11 @@ function App() {
     if (!flying) return;
     document.documentElement.classList.add("in-flight");
     const preventPagePan = (event: TouchEvent) => {
-      if (!(event.target as HTMLElement)?.closest("input,select,.help"))
+      if (
+        !(event.target as HTMLElement)?.closest(
+          "input,select,.help,.google-settings",
+        )
+      )
         event.preventDefault();
     };
     document.addEventListener("touchmove", preventPagePan, { passive: false });
@@ -455,7 +464,8 @@ function App() {
     );
     (document.activeElement as HTMLElement)?.blur();
   }
-  async function togglePhoto() {
+  async function togglePhoto(keyOverride?: string) {
+    if (photoLoading) return;
     const v = viewer.current;
     if (!v) return;
     if (photo && tiles.current) {
@@ -463,15 +473,19 @@ function App() {
       tiles.current = null;
       setPhoto(false);
       setStatus("Free global scenery");
-      return;
+      if (!keyOverride) return;
     }
-    const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    const key = keyOverride || googleKey.trim();
     if (!key) {
+      setGoogleSettings(true);
       setError(
-        "Google mode needs VITE_GOOGLE_MAPS_API_KEY. Free scenery is ready to fly.",
+        "Enter your Map Tiles API key to load Google 3D. Free scenery is ready to fly.",
       );
       return;
     }
+    setError("");
+    setGoogleSettings(false);
+    setPhotoLoading(true);
     setStatus("Loading Google 3D…");
     try {
       const t = await C.createGooglePhotorealistic3DTileset({ key });
@@ -488,6 +502,8 @@ function App() {
       setError(
         "Google 3D could not load. Check API key, billing and domain restrictions.",
       );
+    } finally {
+      setPhotoLoading(false);
     }
   }
   const returnMap = () => {
@@ -853,14 +869,85 @@ function App() {
           </p>
         </section>
       )}
+      {googleSettings && (
+        <div className="google-settings-backdrop">
+          <section
+            className="google-settings panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Google 3D settings"
+          >
+            <button
+              className="close"
+              aria-label="Close Google settings"
+              onClick={() => {
+                setGoogleSettings(false);
+                setError("");
+              }}
+            >
+              ×
+            </button>
+            <h2>Connect Google 3D</h2>
+            <p>
+              Paste your Google Maps Platform <strong>Map Tiles API</strong>{" "}
+              key. Restrict it to this website in Google Cloud.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void togglePhoto(googleKey.trim());
+              }}
+            >
+              <label htmlFor="google-key">Google Maps API key</label>
+              <input
+                id="google-key"
+                type="password"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                autoFocus
+                required
+                minLength={10}
+                value={googleKey}
+                onChange={(e) => setGoogleKey(e.target.value)}
+                placeholder="Paste your API key"
+              />
+              <small>
+                Used only in this browser session. No key is saved to the
+                repository.
+              </small>
+              <p className="billing-note">
+                Loading Google tiles can incur Google usage charges.
+              </p>
+              <button
+                className="launch"
+                disabled={photoLoading || !googleKey.trim()}
+                type="submit"
+              >
+                Load Google 3D ↗
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
       <footer>
         <span>
           ◈ WORLD EXPLORER <span className="muted">/</span>{" "}
           {flying ? "IN FLIGHT" : "PREFLIGHT"}
         </span>
         <div>
-          <button onClick={togglePhoto}>
-            {photo ? "● Google 3D" : "○ Enable Google 3D"}
+          <button disabled={photoLoading} onClick={() => void togglePhoto()}>
+            {photoLoading
+              ? "Loading Google 3D…"
+              : photo
+                ? "● Google 3D"
+                : "○ Enable Google 3D"}
+          </button>
+          <button
+            className="key-settings-button"
+            onClick={() => setGoogleSettings(true)}
+          >
+            API key
           </button>
           <span className="muted">
             {photo
