@@ -1,0 +1,78 @@
+# MADD Flight Simulator
+
+A playable React + TypeScript + CesiumJS browser simulator. Choose a worldwide departure by searching for a place, entering `latitude, longitude`, clicking the globe, or choosing a preset. Set altitude (feet MSL), heading and airspeed, then start airborne. The original generic business jet is included locally; no model service or purchase is required.
+
+## Run
+
+Use Node.js 24+, npm and a browser with WebGL2 enabled.
+
+```sh
+npm ci
+cp .env.example .env.local
+npm run dev
+```
+
+Open the URL printed by Vite, normally http://localhost:5173. No environment variables are required for the default free mode. The app needs internet for map imagery and place search. If search fails, coordinate input, presets and globe selection still work. If online imagery fails, bundled low-resolution Natural Earth imagery provides an offline globe. WebGL2 is required.
+
+```sh
+npm test          # deterministic flight-physics tests
+npm run build    # TypeScript check and production bundle
+npm run preview  # serve the production build
+npm run model    # regenerate the original GLB (Python 3)
+```
+
+Deploy `dist/` to any static HTTPS host at the domain root. Cesium workers, assets and the aircraft are copied into the build; never serve with `file://`. Environment values are embedded at build time. Rebuild after changing them.
+
+## Optional photorealistic scenery
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_GOOGLE_MAPS_API_KEY` | Google Maps Map Tiles API key for Photorealistic 3D Tiles |
+| `VITE_CESIUM_ION_TOKEN` | Cesium ion token for World Terrain; omit to use an ellipsoid |
+
+The default app makes **no Google requests**. To opt in, supply your own Google key, enable the Map Tiles API in your Google Cloud project, configure billing as Google requires, and click **Enable Google 3D**. No Google account, subscription, key or purchase is created by this project. Check Google's current pricing and terms before enabling it; usage can incur charges. Restrict the browser key to the Map Tiles API and your exact HTTPS origins (plus localhost for development). Set quotas and billing alerts in Google Cloud. Browser `VITE_` values are public; never put server credentials in them. The app does not persist or proxy Google tiles. Cesium's visible credit area must remain visible for Google and data-provider attribution.
+
+Google photorealistic 3D coverage varies worldwide. The OpenStreetMap globe remains underneath the tiles, providing fallback outside coverage and after tile errors. Disable Google 3D to stop further tile loading. Optional World Terrain improves clearance in mountainous areas; terrain usage is subject to your Cesium ion plan. With no token, the fallback is a sea-level ellipsoid, **not a global elevation dataset**.
+
+## Flying
+
+Click the 3D view after interacting with inputs to focus flight controls.
+
+| Key | Action |
+| --- | --- |
+| Arrow down / S | Pitch up |
+| Arrow up / W | Pitch down |
+| Arrow left / A, Arrow right / D | Roll left / right |
+| Q / E | Yaw left / right |
+| + (or =) / − | Increase / decrease throttle |
+| C | Chase / cockpit camera |
+| P | Pause / resume |
+
+Banking produces a coordinated turn. Lift is simplified into pitch-driven vertical velocity, with speed-dependent stall sink, thrust, quadratic drag, gravity and roll/pitch damping. The instrument strip shows airspeed, altitude, vertical speed, throttle and terrain clearance. Cockpit view is an unobstructed first-person camera with an instrument overlay, not a modeled Learjet interior.
+
+Departure is immediate using available cached height; background elevation/3D surface sampling then raises altitude to at least 150 m above the reported surface when results arrive near the departure point. In-flight ground contact ends the flight and offers a restart. Ground height is refreshed from loaded Cesium terrain and sampled periodically when World Terrain is enabled. This is a recreational simulator: terrain loading is asynchronous, buildings are not a full collision mesh, and missing elevation data cannot establish safe real-world clearance. It is not suitable for aviation training or navigation.
+
+## Search and operating costs
+
+Explicit place searches use the public OpenStreetMap Nominatim endpoint. No autocomplete or background search is performed. Respect its [usage policy](https://operations.osmfoundation.org/policies/nominatim/), including a maximum of one request per second. Do not use this public service for heavy production traffic. Configure your own compliant geocoder before a commercial/high-traffic launch. OSM standard tiles are likewise subject to their [tile policy](https://operations.osmfoundation.org/policies/tiles/); commercial use of OSM data does not imply unlimited free tile hosting. Do not bulk download tiles. Google data is licensed separately and is not covered by the source/model license.
+
+## Model, licenses and attribution
+
+`public/models/business-jet.glb` is an **original generic business jet**, generated by `scripts/create_model.py` for this project. Its silhouette is inspired by the business-jet category; it is not an authenticated Learjet 35/45, branded replica, or third-party download. The model and generator are dedicated to the public domain under **CC0 1.0** (see `MODEL-LICENSE.txt`), permitting commercial use and modification without attribution. Suggested credit: “MADD generic business jet, CC0.”
+
+Application source is MIT licensed. React is MIT; CesiumJS is Apache-2.0; see installed package licenses. Map data © OpenStreetMap contributors, ODbL; imagery/service attribution is displayed by Cesium. Google Photorealistic 3D Tiles and Cesium World Terrain retain their provider licenses and runtime credits.
+
+## Verification
+
+`tests/physics.test.ts` exercises directional motion, control response, terrain impact, stall sink, longitude wrapping, polar numerical stability and frame-time bounds. `tests/model.test.ts` checks the shipped GLB and mesh indices. `npm run build` type-checks Cesium/React integration. Google live imagery requires your own authorized key; automated tests do not call billable services.
+
+### Browser smoke test
+
+With `npm run dev` running in another terminal:
+
+```sh
+npx playwright install chromium
+npm run test:browser
+```
+
+Or use an installed Chromium: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:browser`. Set `TEST_URL` to test a production preview. The smoke test mocks geocoder results and blocks OSM tile requests to verify offline scenery; it checks map selection, custom departure settings, keyboard flight, camera switching, pause, missing-key handling and viewport overflow. It does not validate live geocoder data or Google coverage. Screenshots are written to ignored `planner.png` and `flight.png`.

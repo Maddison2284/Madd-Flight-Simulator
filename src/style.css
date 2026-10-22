@@ -1,0 +1,650 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+:root {
+  font-family: "DM Sans", sans-serif;
+  color: #eaf2f4;
+  background: #0a1720;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  color: inherit;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.globe {
+  position: absolute;
+  inset: 0;
+}
+.cesium-viewer-bottom {
+  bottom: 52px !important;
+  right: 10px;
+  left: auto !important;
+  max-width: 45%;
+  font-size: 10px;
+}
+header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 106px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 38px;
+  background: linear-gradient(#07131de8, transparent);
+  pointer-events: none;
+}
+.brand,
+.top-right {
+  pointer-events: auto;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 23px;
+  letter-spacing: 2px;
+}
+.brand b {
+  font-weight: 400;
+  color: #a4b9c3;
+}
+.brand small {
+  display: block;
+  font-size: 8px;
+  letter-spacing: 2.8px;
+  margin-top: 6px;
+  color: #819ba8;
+}
+.logo {
+  font-weight: 700;
+  font-size: 38px;
+  position: relative;
+  color: #a4f4be;
+}
+.logo span {
+  font-size: 24px;
+  position: absolute;
+  left: 14px;
+  top: -7px;
+}
+.top-right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 11px;
+  color: #b4c7cf;
+}
+.top-right button,
+.flight-actions button {
+  border: 1px solid #ffffff25;
+  border-radius: 6px;
+  padding: 10px 14px;
+  background: #13242ddb;
+}
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a6f4be;
+  box-shadow: 0 0 10px #a6f4be;
+}
+kbd {
+  font:
+    10px "Space Grotesk",
+    monospace;
+  border: 1px solid #ffffff25;
+  padding: 3px 5px;
+  border-radius: 3px;
+  margin-left: 7px;
+}
+.panel {
+  background: #0c1a23ed;
+  border: 1px solid #ffffff19;
+  border-radius: 12px;
+  box-shadow: 0 24px 60px #0005;
+  backdrop-filter: blur(16px);
+}
+.dispatch {
+  position: absolute;
+  top: 126px;
+  left: 38px;
+  width: 370px;
+  padding: 25px;
+}
+.eyebrow {
+  font-size: 9px;
+  letter-spacing: 1.8px;
+  color: #a4f4be;
+  display: flex;
+  justify-content: space-between;
+}
+.eyebrow span {
+  color: #748d9b;
+  font-size: 8px;
+  letter-spacing: 1px;
+}
+h1 {
+  font:
+    500 48px/1.02 "Space Grotesk",
+    sans-serif;
+  letter-spacing: -2px;
+  margin: 24px 0 12px;
+}
+h1 em {
+  font-style: normal;
+  color: #a4f4be;
+}
+.intro {
+  font-size: 12px;
+  color: #8fa6b2;
+  margin-bottom: 24px;
+}
+.search {
+  display: flex;
+  align-items: center;
+  background: #ffffff08;
+  border: 1px solid #ffffff20;
+  border-radius: 6px;
+  height: 44px;
+  padding-left: 12px;
+  gap: 8px;
+}
+.search > span {
+  font-size: 23px;
+  color: #a4f4be;
+}
+.search input {
+  min-width: 0;
+  width: 100%;
+  background: none;
+  color: #fff;
+  border: 0;
+  outline: none;
+  font-size: 10px;
+}
+.search button {
+  border: 0;
+  background: none;
+  font-size: 20px;
+  padding: 10px;
+  color: #a4f4be;
+}
+.destination {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 21px;
+}
+.pin {
+  font-size: 27px;
+  color: #a4f4be;
+}
+.destination strong {
+  font-size: 12px;
+  display: block;
+  max-width: 205px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.destination small,
+.aircraft small {
+  font-size: 9px;
+  color: #7c95a3;
+  display: block;
+  margin-top: 5px;
+  font-family: monospace;
+}
+.tag {
+  margin-left: auto;
+  color: #a4f4be;
+  font-size: 7px;
+  letter-spacing: 1px;
+}
+.hint {
+  font-size: 9px;
+  color: #6c8795;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #ffffff12;
+}
+.settings {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 12px;
+  margin: 22px 0;
+}
+.settings label {
+  font-size: 8px;
+  color: #a8bdc7;
+  letter-spacing: 1px;
+}
+.settings label span {
+  font-size: 6px;
+  display: block;
+  color: #607f90;
+  margin-top: 5px;
+}
+.settings input {
+  background: #ffffff05;
+  border: 1px solid #ffffff14;
+  border-radius: 5px;
+  padding: 11px 8px;
+  color: #f5ffff;
+  width: 100%;
+  margin-top: 8px;
+  font:
+    18px "Space Grotesk",
+    sans-serif;
+}
+.aircraft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid #ffffff12;
+  padding: 17px 0;
+}
+.aircraft > span:first-child {
+  font-size: 30px;
+  color: #b5cbd5;
+}
+.aircraft strong {
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.launch {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 0;
+  border-radius: 5px;
+  width: 100%;
+  padding: 15px;
+  background: #a4f4be;
+  color: #11291c;
+  font-weight: 700;
+  font-size: 13px;
+}
+.launch span {
+  font-size: 23px;
+  line-height: 10px;
+}
+.panel-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 6px;
+  color: #6e8998;
+  letter-spacing: 1.4px;
+  margin-top: 13px;
+}
+.places {
+  position: absolute;
+  right: 38px;
+  bottom: 105px;
+  width: 220px;
+  padding: 20px;
+  background: #0c1a23cf;
+  border: 1px solid #ffffff17;
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+}
+.places .eyebrow {
+  margin-bottom: 15px;
+  font-size: 8px;
+}
+.places button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-top: 1px solid #ffffff14;
+  text-align: left;
+  padding: 12px 0;
+  gap: 13px;
+  font-size: 12px;
+}
+.places button span {
+  font: 9px monospace;
+  color: #64818f;
+}
+.places b {
+  margin-left: auto;
+  font-weight: 400;
+  color: #a4f4be;
+}
+footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  min-height: 46px;
+  background: #0b1822ef;
+  border-top: 1px solid #ffffff16;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 38px;
+  font-size: 8px;
+  letter-spacing: 1.4px;
+}
+footer > div {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+footer button {
+  background: none;
+  border: 0;
+  font-size: 10px;
+  color: #a4f4be;
+}
+.muted {
+  color: #668391;
+}
+.flight-actions {
+  position: absolute;
+  left: 38px;
+  top: 120px;
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+}
+.heading-strip {
+  position: absolute;
+  top: 115px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: 32px "Space Grotesk";
+  text-align: center;
+  background: #0b1822b5;
+  padding: 12px 35px;
+  border-top: 2px solid #a4f4be;
+}
+.heading-strip small {
+  display: block;
+  font: 8px sans-serif;
+  letter-spacing: 3px;
+  color: #a4f4be;
+}
+.reticle {
+  position: absolute;
+  top: 49%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #bafcd4a8;
+  font-size: 30px;
+  pointer-events: none;
+}
+.instruments {
+  position: absolute;
+  bottom: 85px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 25px;
+  align-items: center;
+  background: #0a1822e8;
+  border: 1px solid #ffffff24;
+  border-radius: 12px;
+  padding: 20px 28px;
+  backdrop-filter: blur(14px);
+}
+.instrument {
+  min-width: 85px;
+}
+.instrument small {
+  font-size: 8px;
+  color: #93aebc;
+  letter-spacing: 1px;
+  display: block;
+}
+.instrument strong {
+  font: 30px "Space Grotesk";
+  display: block;
+  margin: 6px 0;
+}
+.instrument > span {
+  font: 8px monospace;
+  color: #a4f4be;
+}
+.attitude {
+  width: 85px;
+  height: 85px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid #506c7b;
+  position: relative;
+  flex-shrink: 0;
+  background: #223b4b;
+}
+.attitude > div {
+  position: absolute;
+  inset: -100%;
+  background: linear-gradient(#326481 50%, #77644a 50%);
+  border-top: 1px solid #fff;
+}
+.attitude > span {
+  position: absolute;
+  top: 35%;
+  left: 17%;
+  color: #b6f8c9;
+  font-size: 18px;
+}
+.alert {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translateX(-50%);
+  background: #1b252cf0;
+  padding: 20px 25px;
+  border: 1px solid #e5bc72;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #f4cf87;
+  text-align: center;
+}
+.alert strong {
+  display: block;
+}
+.alert button {
+  display: block;
+  margin: 15px auto 0;
+  background: #a4f4be;
+  color: #123120;
+  padding: 10px;
+  border: 0;
+  border-radius: 4px;
+}
+.error {
+  position: absolute;
+  bottom: 55px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #342a23f5;
+  color: #ffdaad;
+  padding: 14px 20px;
+  border: 1px solid #a6794a;
+  border-radius: 7px;
+  max-width: 90%;
+  font-size: 12px;
+  z-index: 5;
+}
+.error span {
+  margin-left: 20px;
+}
+.help {
+  position: absolute;
+  right: 38px;
+  top: 115px;
+  width: 350px;
+  padding: 25px;
+  z-index: 6;
+}
+.help h2 {
+  font: 24px "Space Grotesk";
+}
+.help p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #9bb1bc;
+}
+.help > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid #ffffff0d;
+  font-size: 11px;
+}
+.help kbd {
+  margin: 0;
+}
+.close {
+  float: right;
+  border: 0;
+  background: none;
+  font-size: 22px;
+}
+.results {
+  max-height: 150px;
+  overflow: auto;
+}
+.results button {
+  background: #172f3b;
+  border: 0;
+  border-bottom: 1px solid #ffffff15;
+  width: 100%;
+  padding: 10px;
+  font-size: 10px;
+  text-align: left;
+}
+.cockpit-frame {
+  position: absolute;
+  inset: 0;
+  border-left: 20px solid #121b22;
+  border-right: 20px solid #121b22;
+  pointer-events: none;
+  box-shadow: inset 0 -110px 70px -50px #0b121d;
+}
+button:hover {
+  filter: brightness(1.18);
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid #a4f4be;
+  outline-offset: 3px;
+}
+@media (max-height: 820px) {
+  .dispatch {
+    top: 100px;
+    padding: 18px;
+  }
+  .dispatch h1 {
+    font-size: 37px;
+    margin: 15px 0 10px;
+  }
+  .intro {
+    margin-bottom: 16px;
+  }
+  .settings {
+    margin: 14px 0;
+  }
+  .hint {
+    padding-bottom: 10px;
+  }
+  .aircraft {
+    padding: 12px 0;
+  }
+}
+@media (max-width: 800px) {
+  header {
+    padding: 0 18px;
+    height: 85px;
+  }
+  .brand {
+    font-size: 18px;
+  }
+  .top-right > span {
+    display: none;
+  }
+  .dispatch {
+    left: 18px;
+    width: 320px;
+    top: 95px;
+  }
+  .places {
+    display: none;
+  }
+  footer {
+    padding: 8px 15px;
+  }
+  footer .muted {
+    display: none;
+  }
+  .instruments {
+    width: 94%;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    bottom: 65px;
+    padding: 12px;
+  }
+  .instrument {
+    min-width: 65px;
+  }
+  .instrument strong {
+    font-size: 23px;
+  }
+  .attitude {
+    width: 65px;
+    height: 65px;
+  }
+  .flight-actions {
+    left: 15px;
+    top: 90px;
+  }
+  .heading-strip {
+    top: 145px;
+  }
+  .help {
+    right: 15px;
+    top: 95px;
+    max-width: 94%;
+  }
+  .cesium-viewer-bottom {
+    max-width: 50%;
+  }
+}
+@media (max-height: 650px) {
+  .dispatch {
+    max-height: calc(100vh - 155px);
+    overflow: auto;
+  }
+  .dispatch h1 {
+    font-size: 30px;
+  }
+  .instruments {
+    bottom: 65px;
+    padding: 10px;
+  }
+  .instrument strong {
+    font-size: 22px;
+  }
+}
