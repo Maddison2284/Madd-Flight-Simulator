@@ -30,6 +30,7 @@ import {
 } from "./flight-model";
 import { hoverTrimCollective, HOVER_COLLECTIVE } from "./heli";
 import { ROTOR_PARTS, RotorAnimator } from "./rotors";
+import { MAX_START_ALT_FT, altToSlider, sliderToAlt, startAltFt } from "./altitude";
 import { TouchControls, type TouchAxes } from "./TouchControls";
 import { Cockpit } from "./Cockpit";
 import {
@@ -899,6 +900,9 @@ function App() {
           speed: flight.current.speed,
           boost: flight.current.boost,
           engine: aircraftRef.current.engine,
+          afterburner:
+            aircraftRef.current.id === "fighter" &&
+            (flight.current.throttle > 0.85 || flight.current.boost),
         });
         ui = now;
       }
@@ -1664,12 +1668,33 @@ function App() {
                 <input
                   type="number"
                   min="100"
-                  max="49000"
-                  value={alt}
-                  onChange={(e) =>
-                    setAlt(clamp(Number(e.target.value), 100, 49000))
-                  }
+                  max={MAX_START_ALT_FT}
+                  step="100"
+                  key={alt}
+                  defaultValue={alt}
+                  // Commit on blur / Enter so typing 2000000 isn't clamped per keystroke.
+                  onBlur={(e) => {
+                    const v = startAltFt(e.target.value);
+                    e.target.value = String(v);
+                    setAlt(v);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
                 />
+                <input
+                  className="alt-slider"
+                  type="range"
+                  aria-label="Start altitude (log scale)"
+                  min="0"
+                  max="1000"
+                  value={altToSlider(alt)}
+                  onChange={(e) => setAlt(sliderToAlt(Number(e.target.value)))}
+                />
+                <small className="alt-readout">
+                  {alt.toLocaleString()} ft
+                  {alt >= 330000 ? " · space" : alt >= 100000 ? " · near space" : ""}
+                </small>
               </label>
               <label>
                 HEADING <span>DEG</span>
@@ -2015,7 +2040,7 @@ function App() {
             />
             <Instrument
               label="VERTICAL SPEED"
-              value={Math.round(f.vs * 196.85)}
+              value={Math.round(f.vs * 196.85).toLocaleString()}
               unit="FT / MIN"
             />
             <Instrument
@@ -2025,7 +2050,7 @@ function App() {
             />
             <Instrument
               label="CLEARANCE"
-              value={Math.round((f.alt - ground.current) / 0.3048)}
+              value={Math.round((f.alt - ground.current) / 0.3048).toLocaleString()}
               unit="FT AGL"
             />
           </div>

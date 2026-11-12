@@ -55,7 +55,10 @@ type ModelLike = { ready?: boolean; getNode?: (n: string) => unknown; length?: n
 
 /** Find the loaded Cesium Model for `uri` and report which spin nodes it has. */
 export function matchRotorNodes(scene: C.Scene, aircraft: Aircraft): { found: string[]; missing: string[] } | null {
-  const want = (ROTOR_PARTS[aircraft.id] ?? []).flatMap((p) => [p.node, p.node + "_disc"]);
+  const want = [
+    ...(ROTOR_PARTS[aircraft.id] ?? []).flatMap((p) => [p.node, p.node + "_disc"]),
+    ...(AFTERBURNER_NODES[aircraft.id] ?? []),
+  ];
   const visit = (prim: ModelLike, depth: number): { found: string[]; missing: string[] } | null => {
     if (!prim || depth > 6) return null;
     if (typeof prim.getNode === "function") {
@@ -72,6 +75,23 @@ export function matchRotorNodes(scene: C.Scene, aircraft: Aircraft): { found: st
     return null;
   };
   return visit(scene.primitives as unknown as ModelLike, 0);
+}
+
+/** Afterburner plume nodes merged into fighter.glb (scripts/merge-glb.mjs). */
+export const AFTERBURNER_NODES: Record<string, string[]> = {
+  fighter: ["mf_ab_L", "mf_ab_R"],
+};
+
+/** Plume size from throttle: a short blue glow at idle, growing orange
+ * plume, and a big flare (with shock diamonds) at full throttle / boost.
+ * `flicker` is 0..1 noise; returns metres (plume is authored 1 m long). */
+export function afterburnerScale(throttle: number, boost: boolean, flicker: number) {
+  const t = C.Math.clamp(throttle, 0, 1);
+  const flare = C.Math.clamp((t - 0.85) / 0.15, 0, 1) + (boost ? 0.6 : 0);
+  const length = 0.5 + 3.5 * t * t + 4 * flare;
+  const radius = 0.65 + 0.3 * t + 0.25 * flare;
+  const jitter = 1 + (flicker - 0.5) * (0.12 + 0.18 * t);
+  return { length: length * jitter, radius: radius * (1 + (flicker - 0.5) * 0.06) };
 }
 
 export class RotorAnimator {
@@ -105,6 +125,7 @@ export class RotorAnimator {
     const target = flying ? targetRpm(aircraft, f) : 0;
     const tau = target > this.rpm ? 1.6 : 2.5;
     this.rpm += (target - this.rpm) * (1 - Math.exp(-dt / tau));
+    this.updateAfterburner(aircraft, f, flying);
     const { disc, blades } = bladeAndDiscScale(this.rpm);
     for (const part of ROTOR_PARTS[aircraft.id] ?? []) {
       const a =
@@ -116,6 +137,19 @@ export class RotorAnimator {
       this.set(part.node, spin, part.solid ? 1 : Math.max(blades, 0.001));
       // The disc node is authored at scale 0.001 (hidden in static viewers).
       this.set(part.node + "_disc", spin, Math.max(disc, 0.001) * 1000);
+    }
+  }
+
+  /** Called from update(): afterburner plumes (per-frame flicker). */
+  private updateAfterburner(aircraft: Aircraft, f: Flight, flying: boolean) {
+    for (const node of AFTERBURNER_NODES[aircraft.id] ?? []) {
+      const t = this.trs.get(node) ?? new C.TranslationRotationScale();
+      if (!flying || f.crashed) t.scale = new C.Cartesian3(0.001, 0.001, 0.001);
+      else {
+        const { length, radius } = afterburnerScale(f.throttle, f.boost, Math.random());
+        t.scale = new C.Cartesian3(radius, radius, length);
+      }
+      this.trs.set(node, t);
     }
   }
 
@@ -132,9 +166,12 @@ export class RotorAnimator {
 
   /** PropertyBag for ModelGraphics.nodeTransformations. */
   nodeTransformations(getAircraft: () => Aircraft): C.PropertyBag {
-    const nodes = Object.values(ROTOR_PARTS)
-      .flat()
-      .flatMap((p) => [p.node, p.node + "_disc"]);
+    const nodes = [
+      ...Object.values(ROTOR_PARTS)
+        .flat()
+        .flatMap((p) => [p.node, p.node + "_disc"]),
+      ...Object.values(AFTERBURNER_NODES).flat(),
+    ];
     const bag: Record<string, C.CallbackProperty> = {};
     for (const node of nodes)
       bag[node] = new C.CallbackProperty(

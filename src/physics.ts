@@ -18,6 +18,8 @@ export type Flight = {
   ve?: number;
   /** Helicopter only: smoothed yaw rate (deg/s). */
   yawRate?: number;
+  /** Planes: ballistic sink (m/s) built up in thin air at extreme altitude. */
+  sink?: number;
 };
 export type Controls = {
   pitch: number;
@@ -27,6 +29,16 @@ export type Controls = {
   /** Wheel brakes on the ground, 0..1. */
   brake?: number;
 };
+/** Highest selectable start altitude: 2,000,000 ft (609.6 km, low orbit). */
+export const MAX_START_ALT_FT = 2_000_000;
+export const MAX_START_ALT_M = MAX_START_ALT_FT * 0.3048;
+/** Relative air density (exponential atmosphere, 8.5 km scale height). */
+export const airDensity = (altM: number) => Math.exp(-Math.max(0, altM) / 8500);
+/** Wings only fly where there is air: 1 = full lift, 0 = ballistic. */
+export function liftFactor(altM: number, speed: number, stallSpeed: number) {
+  const q = airDensity(altM) * (speed / Math.max(1, stallSpeed)) ** 2;
+  return Math.max(0, Math.min(1, q));
+}
 export const clamp = (v: number, a: number, b: number) =>
   Math.max(a, Math.min(b, v));
 export const wrap = (n: number) => ((n % 360) + 360) % 360;
@@ -77,7 +89,7 @@ export function spawn(
   return {
     lat: clamp(lat, -89.9, 89.9),
     lon: ((lon + 540) % 360) - 180,
-    alt: clamp(alt, 20, 15000),
+    alt: clamp(Number.isFinite(alt) ? alt : 1000, 20, MAX_START_ALT_M),
     heading: wrap(heading),
     pitch: 0,
     roll: 0,
@@ -181,31 +193,35 @@ export function step(
   if (f.onGround) return groundRoll(f, c, dt, ground, perf);
   const throttle = clamp(f.throttle + c.throttle * dt * 0.25, 0, 1);
   const rad = Math.PI / 180;
-  // Pilot inputs are rotations about the aircraft's own axes. Convert body
-  // rates into heading/elevation/bank rates before moving in world space.
-  const rates = bodyRatesToEuler(
-    f.pitch,
-    f.roll,
-    clamp(c.roll, -1, 1) * perf.rollRate,
-    clamp(c.pitch, -1, 1) * perf.pitchRate,
-    clamp(c.yaw, -1, 1) * perf.yawRate,
-  );
-  const pitch = clamp(f.pitch + (rates.pitch - f.pitch * 0.045) * dt, -65, 65);
-  // Gentle stabilization acts only after all attitude controls are released.
-  // Holding roll still allows unrestricted 360-degree maneuvers.
+  // Attitude is integrated as a quaternion (no Euler clamps, no gimbal lock),
+  // so rolls, loops and inverted flight are unrestricted. heading/pitch/roll
+  // are re-derived from it every step for the rest of the sim and the UI.
   const handsOff =
     Math.abs(c.roll) < 0.08 &&
     Math.abs(c.pitch) < 0.08 &&
     Math.abs(c.yaw) < 0.08;
-  const leveling = handsOff ? -clamp(f.roll * 0.14, -8, 8) : 0;
-  const roll = wrap(f.roll + (rates.roll + leveling) * dt + 180) - 180;
-  const bank = roll * rad;
-  // A simplified coordinated turn, bounded through knife-edge and inverted
-  // attitudes. tan(bank) is singular at 90 degrees and flips sign beyond it.
+  const upright = Math.abs(f.roll) < 60 && Math.abs(f.pitch) < 60;
+  // Gentle stabilization only hands-off and only near upright; held inputs
+  // (and hands-off inverted flight) are never fought.
+  const levelRoll = handsOff && upright ? -clamp(f.roll * 0.14, -8, 8) : 0;
+  const levelPitch = handsOff && upright ? -f.pitch * 0.045 : 0;
+  const p = clamp(c.roll, -1, 1) * perf.rollRate + levelRoll;
+  const q = clamp(c.pitch, -1, 1) * perf.pitchRate + levelPitch;
+  const r = clamp(c.yaw, -1, 1) * perf.yawRate;
+  let att = eulerToQuat(f.heading, f.pitch, f.roll);
+  att = quatMul(att, quatFromBodyRates(p * rad * dt, q * rad * dt, r * rad * dt));
+  // A simplified coordinated turn about world vertical, bounded through
+  // knife-edge and inverted attitudes.
+  const bank0 = f.roll * rad;
   const bankTurnRate =
-    (9.81 * Math.sin(bank)) /
-    (Math.max(Math.abs(Math.cos(bank)), 0.25) * Math.max(f.speed, 30)) /
-    rad;
+    ((9.81 * Math.sin(bank0)) /
+      (Math.max(Math.abs(Math.cos(bank0)), 0.25) * Math.max(f.speed, 30)) /
+      rad) *
+    Math.max(0, Math.cos(f.pitch * rad));
+  att = quatMul(quatAboutDown(bankTurnRate * rad * dt), att);
+  const e = quatToEuler(quatNormalize(att));
+  const pitch = e.pitch;
+  const roll = e.roll;
   const stall = f.speed < perf.stallSpeed;
   const speed = clamp(
     f.speed +
@@ -217,10 +233,16 @@ export function step(
     perf.minSpeed,
     f.boost ? perf.boostMax : Math.max(perf.cruiseMax, f.speed),
   );
+  // Thin air: above ~30 km the wings stop working and the aircraft falls
+  // ballistically (sink builds at g), recovering as the air thickens again.
+  const lift = liftFactor(f.alt, speed, perf.stallSpeed);
+  const prevSink = f.sink ?? 0;
+  const sink = clamp(prevSink + (9.81 * (1 - lift) - prevSink * lift * 1.2) * dt, 0, 2500);
   const vs =
     speed * Math.sin(pitch * rad) -
-    (stall ? (perf.stallSpeed - speed) * perf.stallSink : 0);
-  const heading = wrap(f.heading + (bankTurnRate + rates.heading) * dt);
+    (stall ? (perf.stallSpeed - speed) * perf.stallSink : 0) -
+    sink;
+  const heading = e.heading;
   const distance = speed * Math.cos(pitch * rad) * dt;
   const lat = clamp(
     f.lat + (distance * Math.cos(heading * rad)) / 111320,
@@ -250,6 +272,7 @@ export function step(
     stall,
     crashed: false,
     onGround: false,
+    sink: sink > 0.01 ? sink : undefined,
   };
   if (alt > ground + gear) return next;
   // Ground contact: a gentle touchdown settles on the gear and keeps rolling;
@@ -287,4 +310,56 @@ export function bodyRatesToEuler(
     pitch: q * cos - r * sin,
     heading: transverse / Math.max(0.1, Math.cos(theta)),
   };
+}
+
+// ---- Attitude quaternions (aerospace ZYX: heading about down, pitch about
+// right wing, roll about the nose; NED-style local frame). [w, x, y, z]
+export type Quat = [number, number, number, number];
+
+export function eulerToQuat(headingDeg: number, pitchDeg: number, rollDeg: number): Quat {
+  const r = Math.PI / 360;
+  const cy = Math.cos(headingDeg * r), sy = Math.sin(headingDeg * r);
+  const cp = Math.cos(pitchDeg * r), sp = Math.sin(pitchDeg * r);
+  const cr = Math.cos(rollDeg * r), sr = Math.sin(rollDeg * r);
+  return [
+    cr * cp * cy + sr * sp * sy,
+    sr * cp * cy - cr * sp * sy,
+    cr * sp * cy + sr * cp * sy,
+    cr * cp * sy - sr * sp * cy,
+  ];
+}
+
+export function quatToEuler([w, x, y, z]: Quat) {
+  const d = 180 / Math.PI;
+  const roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)) * d;
+  const pitch = Math.asin(clamp(2 * (w * y - z * x), -1, 1)) * d;
+  const heading = wrap(Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)) * d);
+  return { heading, pitch, roll };
+}
+
+export function quatMul(a: Quat, b: Quat): Quat {
+  return [
+    a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+    a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+    a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+    a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
+  ];
+}
+
+export function quatNormalize(q: Quat): Quat {
+  const n = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+  return [q[0] / n, q[1] / n, q[2] / n, q[3] / n];
+}
+
+/** Rotation by body-axis angles (radians) roll p, pitch q, yaw r. */
+export function quatFromBodyRates(p: number, q: number, r: number): Quat {
+  const a = Math.hypot(p, q, r);
+  if (a < 1e-12) return [1, 0, 0, 0];
+  const s = Math.sin(a / 2) / a;
+  return [Math.cos(a / 2), p * s, q * s, r * s];
+}
+
+/** Rotation about the local down axis (positive = heading clockwise). */
+export function quatAboutDown(angle: number): Quat {
+  return [Math.cos(angle / 2), 0, 0, Math.sin(angle / 2)];
 }

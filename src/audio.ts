@@ -11,6 +11,8 @@ export type FlightAudioState = {
   speed: number;
   boost: boolean;
   engine: EngineKind;
+  /** Fighter afterburner lit (louder, brighter roar). */
+  afterburner?: boolean;
 };
 
 function readMuted(): boolean {
@@ -245,7 +247,8 @@ export class FlightAudio {
     if (this.engineGain) {
       const base =
         state.engine === "rotor" ? 0.22 : state.engine === "prop" ? 0.2 : state.engine === "saucer" ? 0.12 : 0.16;
-      const level = flying ? base * (0.25 + throttle * 0.85 + (state.boost ? 0.15 : 0)) : 0;
+      const ab = flying && state.afterburner ? 1.7 : 1;
+      const level = flying ? base * ab * (0.25 + throttle * 0.85 + (state.boost ? 0.15 : 0)) : 0;
       this.engineGain.gain.setTargetAtTime(level, t, 0.08);
     }
     if (this.engineFilter) {
@@ -256,7 +259,7 @@ export class FlightAudio {
             ? 350 + throttle * 600
             : state.engine === "saucer"
               ? 900 + throttle * 900
-              : 700 + throttle * 1800;
+              : 700 + throttle * 1800 + (state.afterburner ? 1400 : 0);
       this.engineFilter.frequency.setTargetAtTime(cutoff, t, 0.1);
     }
     if (this.engineOsc) {

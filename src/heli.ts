@@ -16,7 +16,7 @@ import { clamp, wrap, type Controls, type Flight } from "./physics";
  * - No stall. Safe touchdowns settle on the skids; lift off with collective.
  */
 export const HOVER_COLLECTIVE = 0.5;
-export type RotorcraftParams = typeof HELI;
+export type RotorcraftParams = typeof HELI & { /** Fictional craft that keeps lift in space (saucer). */ spaceCapable?: boolean };
 export const HELI = {
   gear: 1.7, // model origin above the skids (m)
   collectiveRate: 0.35, // collective travel per second while a key is held
@@ -50,6 +50,13 @@ export function etlFactor(airspeed: number, P: RotorcraftParams = HELI): number 
 }
 
 /** Thrust as a multiple of weight for a collective setting. */
+/** Rotor thrust fades in near-space (above 15 km) so a rotorcraft spawned at
+ * extreme altitude falls back into the air instead of hovering in orbit.
+ * Normal flight altitudes are untouched (arcade hover holds as before). */
+export function thinAirFactor(altM: number): number {
+  return altM <= 15000 ? 1 : Math.exp(-(altM - 15000) / 8500);
+}
+
 export function thrustRatio(collective: number): number {
   return Math.max(0, 1 + (collective - HOVER_COLLECTIVE) * 2);
 }
@@ -144,7 +151,8 @@ export function stepHeli(
   // Rotor thrust (as acceleration) along the tilted disc.
   const agl = f.alt - ground;
   const T =
-    G * thrustRatio(collective) * groundEffectFactor(agl, P) * etlFactor(speed0, P);
+    G * thrustRatio(collective) * groundEffectFactor(agl, P) * etlFactor(speed0, P) *
+    (P.spaceCapable ? 1 : thinAirFactor(f.alt));
   const p = pitch * rad,
     r = roll * rad;
   const aFwd = -T * Math.sin(p) * Math.cos(r);
@@ -154,7 +162,7 @@ export function stepHeli(
   const drag = P.dragLinear + P.dragQuadratic * speed0;
   vn += (aFwd * Math.cos(hh) - aRight * Math.sin(hh) - drag * vn) * dt;
   ve += (aFwd * Math.sin(hh) + aRight * Math.cos(hh) - drag * ve) * dt;
-  let vs = f.vs + (aUp - P.verticalDamping * f.vs) * dt;
+  let vs = f.vs + (aUp - P.verticalDamping * (P.spaceCapable ? 1 : thinAirFactor(f.alt)) * f.vs) * dt;
 
   if (onGround) {
     if (aUp > 0.05) {
@@ -223,6 +231,7 @@ function move(f: Flight, vn: number, ve: number, dt: number) {
 /** MADD Saucer: same hover model, tuned as a fictional spacecraft. Stronger
  * tilt and lower drag (~250 kt), quick yaw, almost no ground effect or ETL. */
 export const SAUCER: RotorcraftParams = {
+  spaceCapable: true,
   ...HELI,
   gear: 1.4,
   collectiveRate: 0.3,
