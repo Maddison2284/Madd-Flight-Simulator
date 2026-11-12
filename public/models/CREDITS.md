@@ -16,13 +16,13 @@ All assets below are commercial-OK (CC0 or CC BY 4.0). No NC/ND, no ripped game 
 - Redistributed/optimized as a webp GLB by gods-eye-view (bilawalsidhu)
 - Source: https://github.com/bilawalsidhu/gods-eye-view
 - License: https://creativecommons.org/licenses/by/4.0/
-- Modifications: used as published in gods-eye-view; no mesh re-authoring
+- Modifications: used as published in gods-eye-view; spinning engine fan discs added inside the intakes (fan art drawn by MADD Flight, CC0; scripts/rig-fans.mjs)
 
 ### Airbus A320, logo-free (`public/models/a320.glb`)
 - Author: amvlab
 - Source: https://github.com/amvlab/aircraft-models (models/A320_nologo.glb)
 - License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
-- Modifications: gltf-transform optimize (weld, Draco compression) for web delivery; no livery changes
+- Modifications: gltf-transform optimize (weld, Draco compression) for web delivery; no livery changes; engine fan faces / spinners split into separate spinning nodes with motion-blur discs and a spinner swirl (scripts/rig-fans.mjs)
 
 ### Stealth Fighter (`public/models/fighter.glb`)
 - Author: tevy.dev

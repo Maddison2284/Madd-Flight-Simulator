@@ -18,11 +18,31 @@ type Part = {
   dir: 1 | -1;
   /** Keep the part visible at any RPM (no blur-disc swap). */
   solid?: boolean;
+  /** Jet engine fan (scripts/rig-fans.mjs): instead of a `_disc` node it has
+   * two stacked translucent blur discs, `_blur1` / `_blur2`, that switch on
+   * one after the other as N1 rises (Cesium can't fade a node's alpha, so
+   * two steps make the fade). */
+  fan?: boolean;
 };
 
 const Y = C.Cartesian3.UNIT_Y,
   Z = C.Cartesian3.UNIT_Z,
   X = C.Cartesian3.UNIT_X;
+
+/** Both engines' fans (`mf_fan_1`, `mf_fan_2`), turning the same way. */
+const FANS = (axis: C.Cartesian3, rps: number, dir: 1 | -1): Part[] =>
+  [1, 2].map((n) => ({ node: `mf_fan_${n}`, axis, rps, dir, fan: true }));
+
+/** Extra (non-spinning-blade) node names a part drives. */
+export function partNodes(p: Part): string[] {
+  return p.fan ? [p.node, p.node + "_blur1", p.node + "_blur2"] : [p.node, p.node + "_disc"];
+}
+
+/** Fan blur discs: the first fades in from ~55% N1, the second from ~80%,
+ * so idle shows crisp blades and take-off power a blurred disc. */
+export function fanBlur(rpm: number) {
+  return { blur1: rpm > 0.55, blur2: rpm > 0.8 };
+}
 
 export const ROTOR_PARTS: Record<string, Part[]> = {
   bell206: [
@@ -30,6 +50,12 @@ export const ROTOR_PARTS: Record<string, Part[]> = {
     { node: "mf_tail_rotor", axis: Z, rps: 9, dir: 1 },
   ],
   c172: [{ node: "mf_prop", axis: X, rps: 8, dir: 1 }],
+  // Turbofans: the fan art has ~22-24 blades (15-16 deg apart), so the
+  // apparent rate stays under ~half a blade per frame at 60 fps (< 1 rps)
+  // or the blades alias into a stopped / backwards fan. The blur discs
+  // carry the "fast" look at high N1.
+  a320: FANS(Y, 0.9, 1),
+  citation: FANS(X, 0.9, 1),
   saucer: [{ node: "mf_saucer_ring", axis: Y, rps: 0.6, dir: 1, solid: true }],
 };
 
@@ -57,7 +83,7 @@ type ModelLike = { ready?: boolean; getNode?: (n: string) => unknown; length?: n
 /** Find the loaded Cesium Model for `uri` and report which spin nodes it has. */
 export function matchRotorNodes(scene: C.Scene, aircraft: Aircraft): { found: string[]; missing: string[] } | null {
   const want = [
-    ...(ROTOR_PARTS[aircraft.id] ?? []).flatMap((p) => [p.node, p.node + "_disc"]),
+    ...(ROTOR_PARTS[aircraft.id] ?? []).flatMap(partNodes),
     ...(AFTERBURNER_NODES[aircraft.id] ?? []),
   ];
   const visit = (prim: ModelLike, depth: number): { found: string[]; missing: string[] } | null => {
@@ -124,7 +150,9 @@ export class RotorAnimator {
       this.rpm = 0;
     }
     const target = flying ? targetRpm(aircraft, f) : 0;
-    const tau = target > this.rpm ? 1.6 : 2.5;
+    // Turbofans spool slower than a piston prop or a governed rotor.
+    const jet = aircraft.engine === "jet";
+    const tau = target > this.rpm ? (jet ? 2.4 : 1.6) : jet ? 3.5 : 2.5;
     this.rpm += (target - this.rpm) * (1 - Math.exp(-dt / tau));
     this.updateAfterburner(aircraft, f, flying);
     const { disc, blades } = bladeAndDiscScale(this.rpm);
@@ -135,6 +163,14 @@ export class RotorAnimator {
         (Math.PI * 2);
       this.angles.set(part.node, a);
       const spin = C.Quaternion.fromAxisAngle(part.axis, a);
+      if (part.fan) {
+        // Blur nodes are authored at scale 0.001 (hidden in static viewers).
+        const b = fanBlur(this.rpm);
+        this.set(part.node, spin, 1);
+        this.set(part.node + "_blur1", spin, b.blur1 ? 1000 : 1);
+        this.set(part.node + "_blur2", C.Quaternion.fromAxisAngle(part.axis, -a * 0.5), b.blur2 ? 1000 : 1);
+        continue;
+      }
       this.set(part.node, spin, part.solid ? 1 : Math.max(blades, 0.001));
       // The disc node is authored at scale 0.001 (hidden in static viewers).
       this.set(part.node + "_disc", spin, Math.max(disc, 0.001) * 1000);
@@ -191,9 +227,7 @@ export class RotorAnimator {
         }, false);
     }
     const nodes = [
-      ...Object.values(ROTOR_PARTS)
-        .flat()
-        .flatMap((p) => [p.node, p.node + "_disc"]),
+      ...new Set(Object.values(ROTOR_PARTS).flat().flatMap(partNodes)),
       ...Object.values(AFTERBURNER_NODES).flat(),
     ];
     for (const node of nodes)

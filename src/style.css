@@ -2811,3 +2811,128 @@ footer a,
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* In-flight desktop chrome hugs the screen edges (Dustin, Nov 2026):
+ * row 1 = brand · flight buttons · status/account, row 2 = heading tape +
+ * the right-hand Touch / Boost / Gear stack; at the bottom a thin
+ * transparent strip carries the Cesium / Google attribution (left, never
+ * covered) and the footer links (right), with the instrument panel sitting
+ * directly on top of it. */
+@media (min-width: 801px) and (min-height: 551px) {
+  html.in-flight header {
+    min-height: 0;
+    height: auto;
+    padding: calc(5px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 5px max(12px, env(safe-area-inset-left, 0px));
+    background: linear-gradient(#07131dd9, #07131d00);
+  }
+  html.in-flight .brand-logo {
+    height: 28px;
+  }
+  html.in-flight .brand-tag {
+    display: none;
+  }
+  html.in-flight .top-right {
+    gap: 8px;
+  }
+  html.in-flight .top-right button,
+  html.in-flight .top-right a,
+  html.in-flight .top-right .plan-chip,
+  html.in-flight .top-right .trial-chip,
+  html.in-flight .top-right .admin-link {
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  html.in-flight .flight-actions {
+    top: calc(46px + env(safe-area-inset-top, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
+    gap: 6px;
+    /* Clear of the centred heading tape (~292 px wide). */
+    max-width: calc(50% - 172px);
+  }
+  html.in-flight .flight-actions button,
+  html.in-flight .flight-actions select {
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  html.in-flight .heading-strip,
+  html.in-flight .heading-strip[data-nav="on"] {
+    top: calc(44px + env(safe-area-inset-top, 0px));
+    padding: 4px 16px 5px;
+    font-size: 24px;
+  }
+  html.in-flight .touch-toggle,
+  html.in-flight .desktop-boost {
+    right: max(12px, env(safe-area-inset-right, 0px));
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  html.in-flight .touch-toggle {
+    top: calc(46px + env(safe-area-inset-top, 0px));
+  }
+  html.in-flight .desktop-boost {
+    top: calc(86px + env(safe-area-inset-top, 0px));
+  }
+  html.in-flight .desktop-boost.desktop-gear,
+  html.in-flight .desktop-boost.desktop-jump {
+    top: calc(126px + env(safe-area-inset-top, 0px));
+  }
+  html.in-flight footer {
+    min-height: 0;
+    padding: 0 max(8px, env(safe-area-inset-right, 0px)) calc(2px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+    background: none;
+    border-top: 0;
+    justify-content: flex-end;
+    pointer-events: none;
+  }
+  html.in-flight footer > span,
+  html.in-flight footer .muted {
+    display: none;
+  }
+  html.in-flight footer > div {
+    pointer-events: auto;
+    gap: 2px 4px;
+    background: #0b1822d9;
+    border: 1px solid #ffffff16;
+    border-radius: 6px;
+    padding: 0 6px;
+  }
+  html.in-flight footer button,
+  html.in-flight footer a,
+  html.in-flight footer .legal-link {
+    min-height: 24px;
+    padding: 2px 6px;
+  }
+  html.in-flight .cesium-viewer-bottom {
+    bottom: calc(3px + env(safe-area-inset-bottom, 0px)) !important;
+    left: max(10px, env(safe-area-inset-left, 0px)) !important;
+    right: auto !important;
+    max-width: 48%;
+  }
+  html.in-flight .instruments {
+    bottom: calc(34px + env(safe-area-inset-bottom, 0px));
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  html.in-flight .flight-hint {
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  }
+}
+/* Phones in flight: the touch sticks sat on the Cesium / Google credit;
+ * keep them a credit-line above the bottom edge. */
+@media (max-width: 600px), (max-height: 500px) and (max-width: 1100px) {
+  html.in-flight [data-touch="true"] .touch-controls {
+    bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+  }
+}
+/* Wide screens: the flight buttons join the brand row (one top row). */
+@media (min-width: 1240px) and (min-height: 551px) {
+  html.in-flight .flight-actions {
+    top: calc(5px + env(safe-area-inset-top, 0px));
+    left: calc(max(12px, env(safe-area-inset-left, 0px)) + 196px);
+    max-width: none;
+    flex-wrap: nowrap;
+  }
+}
