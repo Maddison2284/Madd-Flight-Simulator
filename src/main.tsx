@@ -57,6 +57,7 @@ import {
 import { AdminPage } from "./AdminPage";
 import { pushRecent, quickAirports, readRecent } from "./recent-airports";
 import { Paywall, formatTrialClock } from "./Paywall";
+import { BillingPanel, subscriptionSummary } from "./BillingPanel";
 import { useEntitlement } from "./entitlement-client";
 const cameraModes = ["chase", "cockpit", "wing", "front"] as const;
 const cameraLabels: Record<string, string> = {
@@ -164,7 +165,9 @@ function App() {
     [error, setError] = useState(""),
     [photo, setPhoto] = useState(false),
     [help, setHelp] = useState(false),
-    [startOnGround, setStartOnGround] = useState(false);
+    [startOnGround, setStartOnGround] = useState(false),
+    [billingOpen, setBillingOpen] = useState(false),
+    [billingMessage, setBillingMessage] = useState("");
   const [location, setLocation] = useState({
       lat: initial.lat,
       lon: initial.lon,
@@ -1292,7 +1295,37 @@ function App() {
                   Admin
                 </a>
               )}
-              <UserButton />
+              {entitlement.state?.entitled && entitlement.state.reason !== "admin" && (
+                <button
+                  type="button"
+                  className="plan-chip"
+                  data-cancelling={entitlement.state.cancelAtPeriodEnd ? "1" : undefined}
+                  onClick={() => {
+                    setBillingMessage("");
+                    setBillingError("");
+                    setBillingOpen(true);
+                  }}
+                >
+                  {subscriptionSummary(entitlement.state)}
+                </button>
+              )}
+              <UserButton>
+                <UserButton.MenuItems>
+                  <UserButton.Action
+                    label={
+                      entitlement.state?.hasSubscription
+                        ? "Manage / cancel subscription"
+                        : "Subscription"
+                    }
+                    labelIcon={<span aria-hidden="true">★</span>}
+                    onClick={() => {
+                      setBillingMessage("");
+                      setBillingError("");
+                      setBillingOpen(true);
+                    }}
+                  />
+                </UserButton.MenuItems>
+              </UserButton>
             </>
           ) : (
             <>
@@ -1953,11 +1986,12 @@ function App() {
           setBillingBusy(true);
           setBillingError("");
           try {
-            await entitlement.withToken("/api/codes/redeem", {
+            const result = await entitlement.withToken<{ message?: string }>("/api/codes/redeem", {
               method: "POST",
               body: JSON.stringify({ code }),
             });
             setPaywall(false);
+            if (result?.message) setError(result.message);
           } catch (err) {
             setBillingError(err instanceof Error ? err.message : "Could not redeem that code.");
           } finally {
@@ -1965,6 +1999,43 @@ function App() {
           }
         }}
       />
+      {billingOpen && isSignedIn && (
+        <BillingPanel
+          state={entitlement.state}
+          busy={billingBusy}
+          error={billingError}
+          message={billingMessage}
+          onClose={() => setBillingOpen(false)}
+          onCancel={async () => {
+            setBillingBusy(true);
+            setBillingError("");
+            try {
+              const r = await entitlement.withToken<{ message?: string }>("/api/subscription/cancel", {
+                method: "POST",
+              });
+              setBillingMessage(r?.message || "");
+            } catch (err) {
+              setBillingError(err instanceof Error ? err.message : "Could not cancel the subscription.");
+            } finally {
+              setBillingBusy(false);
+            }
+          }}
+          onResume={async () => {
+            setBillingBusy(true);
+            setBillingError("");
+            try {
+              const r = await entitlement.withToken<{ message?: string }>("/api/subscription/resume", {
+                method: "POST",
+              });
+              setBillingMessage(r?.message || "");
+            } catch (err) {
+              setBillingError(err instanceof Error ? err.message : "Could not resume the subscription.");
+            } finally {
+              setBillingBusy(false);
+            }
+          }}
+        />
+      )}
       {authOpen && !isSignedIn && (
         <div className="clerk-modal" role="dialog" aria-modal="true" aria-label="Sign in">
           <div className="clerk-modal-backdrop" onClick={closeAuth} />
@@ -2182,6 +2253,8 @@ function App() {
               ? "Google usage may be billed"
               : "Free scenery · no key required"}
           </span>
+          <a className="legal-link" href="/terms">Terms</a>
+          <a className="legal-link" href="/privacy">Privacy</a>
         </div>
       </footer>
     </main>

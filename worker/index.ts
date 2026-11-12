@@ -8,8 +8,14 @@ import {
   isAdminEmail,
   normalizeCode,
   normalizeEmail,
+  formatDate,
+  mergeCodeGrant,
+  mergeStripeSubscription,
   redeemCode,
   signUnlockToken,
+  stripePeriodEnd,
+  stripePriceId,
+  type BillingMeta,
   timingSafeEqual,
   type AccessCode,
   type Entitlement,
@@ -47,14 +53,7 @@ type ClerkUser = {
   privateMetadata: Record<string, unknown>;
 };
 
-type FlightMeta = {
-  plan?: Entitlement["plan"];
-  periodEnd?: number | null;
-  lifetime?: boolean;
-  stripeCustomerId?: string;
-  stripeSubscriptionId?: string;
-  accessCode?: string;
-};
+type FlightMeta = BillingMeta;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -111,6 +110,19 @@ function readMeta(user: ClerkUser): FlightMeta {
   return { ...pub, ...pri };
 }
 
+/** Read-modify-write of the stored billing state. */
+async function updateMeta(env: Env, userId: string, fn: (meta: FlightMeta) => FlightMeta) {
+  const user = await clerk(env).users.getUser(userId);
+  const pub = (user.publicMetadata?.maddflight || {}) as FlightMeta;
+  const pri = (user.privateMetadata?.maddflight || {}) as FlightMeta;
+  const next = fn({ ...pub, ...pri });
+  await clerk(env).users.updateUserMetadata(userId, {
+    publicMetadata: { maddflight: { ...pub, ...next } },
+    privateMetadata: { maddflight: { ...pri, ...next } },
+  });
+  return next;
+}
+
 async function writeMeta(env: Env, userId: string, patch: FlightMeta) {
   const user = await clerk(env).users.getUser(userId);
   const pub = { ...((user.publicMetadata.maddflight || {}) as object), ...patch };
@@ -140,6 +152,8 @@ function entitlementFor(user: ClerkUser, trial: TrialRecord, now: number): Entit
     plan: meta.plan,
     periodEnd: meta.periodEnd ?? null,
     lifetime: meta.lifetime,
+    cancelAtPeriodEnd: meta.cancelAtPeriodEnd,
+    hasSubscription: Boolean(meta.stripeSubscriptionId && meta.subPlan),
     now,
   });
 }
@@ -271,8 +285,12 @@ async function handleCheckout(request: Request, env: Env) {
   const body = (await request.json().catch(() => ({}))) as { priceId?: string };
   const plan = knownPrice(env, body.priceId || "");
   if (!plan) return json({ error: "Choose the monthly or yearly Madd-Flight Pro plan." }, 400);
+  const existing = readMeta(user);
+  if (existing.subPlan && existing.subPeriodEnd && existing.subPeriodEnd > Date.now() && !existing.cancelAtPeriodEnd) {
+    return json({ error: "You already have an active Madd-Flight Pro subscription." }, 409);
+  }
   const customer = await ensureCustomer(env, user);
-  const session = (await stripe(env, "POST", "/v1/checkout/sessions", {
+  const params: Record<string, string> = {
     mode: "subscription",
     customer,
     client_reference_id: user.id,
@@ -285,34 +303,79 @@ async function handleCheckout(request: Request, env: Env) {
     "subscription_data[metadata][plan]": plan,
     "automatic_tax[enabled]": "false",
     "managed_payments[enabled]": "false",
-  })) as { id: string; url: string };
+  };
+  const consent = {
+    "consent_collection[terms_of_service]": "required",
+    "custom_text[terms_of_service_acceptance][message]":
+      "I agree to the [Madd-Flight Terms](https://maddflight.maddisonempire.com/terms): auto-renewing, cancel anytime, no refunds; access continues until the end of the billing period.",
+  };
+  let session: { id: string; url: string };
+  try {
+    session = (await stripe(env, "POST", "/v1/checkout/sessions", { ...params, ...consent })) as {
+      id: string;
+      url: string;
+    };
+  } catch (err) {
+    // Fail-safe: Stripe rejects consent_collection until the account's public
+    // terms-of-service URL is set. Never let that break checkout.
+    console.warn("checkout: terms consent rejected, retrying without it:", (err as Error).message);
+    session = (await stripe(env, "POST", "/v1/checkout/sessions", params)) as { id: string; url: string };
+  }
   return json({ id: session.id, url: session.url });
 }
 
-function subscriptionPeriodEnd(sub: Record<string, unknown>): number | null {
-  const end = Number(sub.current_period_end || 0);
-  return end > 0 ? end * 1000 : null;
+export function subscriptionPeriodEnd(sub: Record<string, unknown>): number | null {
+  return stripePeriodEnd(sub);
 }
 
-function subscriptionPlan(env: Env, sub: Record<string, unknown>): Entitlement["plan"] {
-  const item = ((sub.items as { data?: Array<{ price?: { id?: string } }> })?.data || [])[0];
-  return knownPrice(env, item?.price?.id || "") || "pro-month";
+function subscriptionPlan(env: Env, sub: Record<string, unknown>): "pro-month" | "pro-year" | null {
+  return knownPrice(env, stripePriceId(sub));
 }
 
+/** Apply a Stripe subscription to the user's stored state. Keeps any
+ * lifetime / longer access-code comp (see mergeStripeSubscription). */
 async function grantSubscription(
   env: Env,
   userId: string,
   sub: Record<string, unknown>,
   customerId?: string,
 ) {
-  const status = String(sub.status || "");
-  const active = status === "active" || status === "trialing" || status === "past_due";
-  await writeMeta(env, userId, {
-    plan: active ? subscriptionPlan(env, sub) : null,
-    periodEnd: active ? subscriptionPeriodEnd(sub) : null,
-    lifetime: false,
-    stripeCustomerId: customerId || (sub.customer as string) || undefined,
-    stripeSubscriptionId: String(sub.id || ""),
+  return updateMeta(env, userId, (meta) =>
+    mergeStripeSubscription(meta, sub, subscriptionPlan(env, sub), customerId),
+  );
+}
+
+/** Cancel at the end of the paid period (or undo that). Never cancels
+ * immediately and never prorates or refunds: no refunds, access continues
+ * until the current billing period ends. */
+async function handleSubscriptionChange(request: Request, env: Env, cancel: boolean) {
+  const user = await requireUser(request, env);
+  if (isResponse(user)) return user;
+  const meta = readMeta(user);
+  const subId = meta.stripeSubscriptionId || "";
+  if (!subId.startsWith("sub_")) return json({ error: "No Madd-Flight Pro subscription on this account." }, 404);
+  const current = (await stripe(env, "GET", `/v1/subscriptions/${subId}`)) as Record<string, unknown>;
+  const owner = (current.metadata as { clerk_user_id?: string } | undefined)?.clerk_user_id;
+  if ((owner && owner !== user.id) || (!owner && current.customer !== meta.stripeCustomerId)) {
+    return json({ error: "This subscription belongs to a different account." }, 403);
+  }
+  const status = String(current.status || "");
+  if (!["active", "trialing", "past_due"].includes(status)) {
+    return json({ error: "This subscription has already ended." }, 409);
+  }
+  const updated = (await stripe(env, "POST", `/v1/subscriptions/${subId}`, {
+    cancel_at_period_end: cancel ? "true" : "false",
+  })) as Record<string, unknown>;
+  await grantSubscription(env, user.id, updated, meta.stripeCustomerId);
+  const fresh = await requireUser(request, env);
+  if (isResponse(fresh)) return fresh;
+  const trial = await loadTrial(env, user.id);
+  const ent = await publicEntitlement(env, fresh, trial, Date.now());
+  return json({
+    ...ent,
+    message: cancel
+      ? `Subscription cancelled. No refunds; your access continues until ${ent.periodEnd ? formatDate(ent.periodEnd) : "the end of the billing period"}.`
+      : "Subscription resumed. It will renew automatically.",
   });
 }
 
@@ -394,15 +457,26 @@ async function handleRedeem(request: Request, env: Env) {
   if (!record) return json({ error: "That access code was not recognized." }, 404);
   const result = redeemCode(record, user.id, Date.now());
   if (!result.ok) return json({ error: result.error }, 409);
-  await env.MADDFLIGHT.put(CODE_KEY(code), JSON.stringify({ ...result.record, code }));
-  await writeMeta(env, user.id, {
-    plan: "comp",
-    lifetime: result.lifetime,
-    periodEnd: result.periodEnd,
-    accessCode: code,
-  });
+  if (!result.alreadyRedeemed)
+    await env.MADDFLIGHT.put(CODE_KEY(code), JSON.stringify({ ...result.record, code }));
+  // Merge, never overwrite: lifetime stays lifetime, longer access stays longer,
+  // and re-redeeming keeps the original expiry.
+  await updateMeta(env, user.id, (meta) =>
+    mergeCodeGrant(meta, { lifetime: result.lifetime, periodEnd: result.periodEnd, code }),
+  );
+  const fresh = await requireUser(request, env);
+  if (isResponse(fresh)) return fresh;
   const trial = await loadTrial(env, user.id);
-  return json({ redeemed: true, ...(await publicEntitlement(env, user, trial, Date.now())) });
+  return json({
+    redeemed: true,
+    alreadyRedeemed: result.alreadyRedeemed,
+    message: result.alreadyRedeemed
+      ? result.lifetime
+        ? "You already redeemed this code. Your lifetime access is unchanged."
+        : `You already redeemed this code. Your access runs until ${formatDate(result.periodEnd!)}.`
+      : undefined,
+    ...(await publicEntitlement(env, fresh, trial, Date.now())),
+  });
 }
 
 async function requireAdmin(request: Request, env: Env): Promise<ClerkUser | Response> {
@@ -475,6 +549,19 @@ async function applyStripeSubscription(env: Env, sub: Record<string, unknown>) {
   await grantSubscription(env, userId, sub, customerId);
 }
 
+/** The Stripe account is shared with Madd Shopping: only subscriptions on the
+ * two Madd-Flight Pro prices are ours. Everything else is acknowledged (200)
+ * and ignored. */
+function isOurSubscription(env: Env, sub: Record<string, unknown>): boolean {
+  return Boolean(knownPrice(env, stripePriceId(sub)));
+}
+
+function invoiceSubscriptionId(invoice: Record<string, unknown>): string | undefined {
+  if (typeof invoice.subscription === "string") return invoice.subscription;
+  const parent = invoice.parent as { subscription_details?: { subscription?: string } } | undefined;
+  return parent?.subscription_details?.subscription || undefined;
+}
+
 async function handleStripeWebhook(request: Request, env: Env) {
   if (!env.STRIPE_WEBHOOK_SECRET) return json({ error: "Webhook secret is not configured." }, 503);
   const sig = request.headers.get("stripe-signature") || "";
@@ -488,27 +575,25 @@ async function handleStripeWebhook(request: Request, env: Env) {
     const subscriptionId = obj.subscription as string | undefined;
     const userId = (obj.metadata as { clerk_user_id?: string } | undefined)?.clerk_user_id ||
       (obj.client_reference_id as string | undefined);
-    if (subscriptionId) {
+    // Madd Shopping checkouts carry no Clerk user and no Pro subscription.
+    if (subscriptionId && userId) {
       const sub = (await stripe(env, "GET", `/v1/subscriptions/${subscriptionId}`)) as Record<
         string,
         unknown
       >;
-      const uid = userId || ((sub.metadata as { clerk_user_id?: string } | undefined)?.clerk_user_id);
-      if (uid) await grantSubscription(env, uid, sub, obj.customer as string);
+      if (isOurSubscription(env, sub)) await grantSubscription(env, userId, sub, obj.customer as string);
     }
   } else if (
+    event.type === "customer.subscription.created" ||
     event.type === "customer.subscription.updated" ||
-    event.type === "customer.subscription.deleted" ||
-    event.type === "invoice.payment_failed"
+    event.type === "customer.subscription.deleted"
   ) {
-    if (event.type === "invoice.payment_failed") {
-      const subId = obj.subscription as string | undefined;
-      if (subId) {
-        const sub = (await stripe(env, "GET", `/v1/subscriptions/${subId}`)) as Record<string, unknown>;
-        await applyStripeSubscription(env, sub);
-      }
-    } else {
-      await applyStripeSubscription(env, obj);
+    if (isOurSubscription(env, obj)) await applyStripeSubscription(env, obj);
+  } else if (event.type === "invoice.paid" || event.type === "invoice.payment_failed") {
+    const subId = invoiceSubscriptionId(obj);
+    if (subId) {
+      const sub = (await stripe(env, "GET", `/v1/subscriptions/${subId}`)) as Record<string, unknown>;
+      if (isOurSubscription(env, sub)) await applyStripeSubscription(env, sub);
     }
   }
   return json({ received: true });
@@ -596,6 +681,10 @@ export default {
       if (method === "GET" && path === "/api/checkout/verify") return await handleVerify(request, env);
       if (method === "POST" && path === "/api/restore") return await handleRestore(request, env);
       if (method === "POST" && path === "/api/codes/redeem") return await handleRedeem(request, env);
+      if (method === "POST" && path === "/api/subscription/cancel")
+        return await handleSubscriptionChange(request, env, true);
+      if (method === "POST" && path === "/api/subscription/resume")
+        return await handleSubscriptionChange(request, env, false);
       if (method === "GET" && path === "/api/admin/codes") return await handleAdminList(request, env);
       if (method === "POST" && path === "/api/admin/codes") return await handleAdminCreate(request, env);
       if (method === "POST" && path === "/api/webhooks/stripe") return await handleStripeWebhook(request, env);

@@ -30,6 +30,10 @@ export type Entitlement = {
   lifetime: boolean;
   trialRemainingMs: number;
   trialUsedMs: number;
+  /** Subscription set to end at periodEnd (no renewal, no refund). */
+  cancelAtPeriodEnd?: boolean;
+  /** True when the user has a Stripe subscription they can manage. */
+  hasSubscription?: boolean;
 };
 
 export type UnlockPayload = {
@@ -68,8 +72,14 @@ export function computeEntitlement(input: {
   lifetime?: boolean;
   /** Admins (verified ADMIN_EMAIL) always fly free: no trial, no paywall. */
   admin?: boolean;
+  cancelAtPeriodEnd?: boolean;
+  hasSubscription?: boolean;
   now: number;
 }): Entitlement {
+  const extra = {
+    cancelAtPeriodEnd: Boolean(input.cancelAtPeriodEnd),
+    hasSubscription: Boolean(input.hasSubscription),
+  };
   if (input.admin) {
     return {
       entitled: true,
@@ -79,6 +89,7 @@ export function computeEntitlement(input: {
       lifetime: true,
       trialRemainingMs: trialRemainingMs(input.trial, true),
       trialUsedMs: input.trial.ms,
+      ...extra,
     };
   }
   const lifetime = Boolean(input.lifetime);
@@ -100,6 +111,7 @@ export function computeEntitlement(input: {
     lifetime,
     trialRemainingMs: trialRemainingMs(input.trial, entitled),
     trialUsedMs: input.trial.ms,
+    ...extra,
   };
 }
 
@@ -115,16 +127,32 @@ export function isAdminEmail(email: string | null | undefined): boolean {
   return normalizeEmail(email || "") === ADMIN_EMAIL;
 }
 
-export function redeemCode(
-  record: AccessCode,
-  userId: string,
-  now: number,
-): { ok: true; record: AccessCode; lifetime: boolean; periodEnd: number | null } | { ok: false; error: string } {
-  if (record.redemptions.some((row) => row.userId === userId)) {
-    const lifetime = record.type === "lifetime";
-    const periodEnd =
-      lifetime || !record.days ? null : now + record.days * 24 * 60 * 60 * 1000;
-    return { ok: true, record, lifetime, periodEnd };
+export type RedeemResult =
+  | {
+      ok: true;
+      record: AccessCode;
+      lifetime: boolean;
+      periodEnd: number | null;
+      /** The user had already redeemed this code: nothing changes. */
+      alreadyRedeemed: boolean;
+    }
+  | { ok: false; error: string };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function redeemCode(record: AccessCode, userId: string, now: number): RedeemResult {
+  const lifetime = record.type === "lifetime";
+  const prior = record.redemptions.find((row) => row.userId === userId);
+  if (prior) {
+    // Re-redeeming never restarts a days-limited period: keep the original expiry.
+    const periodEnd = lifetime || !record.days ? null : prior.at + record.days * DAY_MS;
+    if (!lifetime && periodEnd !== null && periodEnd <= now) {
+      return {
+        ok: false,
+        error: `You already used this code. Its free access ended on ${formatDate(periodEnd)}.`,
+      };
+    }
+    return { ok: true, record, lifetime, periodEnd, alreadyRedeemed: true };
   }
   if (record.redemptions.length >= record.maxRedemptions) {
     return { ok: false, error: "This access code has no remaining uses." };
@@ -133,10 +161,161 @@ export function redeemCode(
     ...record,
     redemptions: [...record.redemptions, { userId, at: now }],
   };
-  const lifetime = record.type === "lifetime";
-  const periodEnd =
-    lifetime || !record.days ? null : now + record.days * 24 * 60 * 60 * 1000;
-  return { ok: true, record: next, lifetime, periodEnd };
+  const periodEnd = lifetime || !record.days ? null : now + record.days * DAY_MS;
+  return { ok: true, record: next, lifetime, periodEnd, alreadyRedeemed: false };
+}
+
+export function formatDate(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "America/Los_Angeles",
+  });
+}
+
+/** Stored billing state (Clerk user metadata `maddflight`). Comp grants
+ * (access codes) and the Stripe subscription are kept separately so neither
+ * can overwrite the other; `plan` / `periodEnd` / `lifetime` are the combined
+ * view that computeEntitlement reads. Older records only have the combined
+ * fields; grantParts() reads both shapes. */
+export type BillingMeta = {
+  plan?: Entitlement["plan"];
+  periodEnd?: number | null;
+  lifetime?: boolean;
+  accessCode?: string;
+  compPeriodEnd?: number | null;
+  subPlan?: "pro-month" | "pro-year" | null;
+  subPeriodEnd?: number | null;
+  subStatus?: string;
+  cancelAtPeriodEnd?: boolean;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+};
+
+export type GrantParts = {
+  lifetime: boolean;
+  compPeriodEnd: number | null;
+  subPlan: "pro-month" | "pro-year" | null;
+  subPeriodEnd: number | null;
+};
+
+export function grantParts(meta: BillingMeta): GrantParts {
+  const legacySub = meta.plan === "pro-month" || meta.plan === "pro-year";
+  return {
+    lifetime: Boolean(meta.lifetime),
+    compPeriodEnd:
+      meta.compPeriodEnd !== undefined
+        ? meta.compPeriodEnd
+        : meta.plan === "comp"
+          ? (meta.periodEnd ?? null)
+          : null,
+    subPlan:
+      meta.subPlan !== undefined
+        ? meta.subPlan
+        : legacySub
+          ? (meta.plan as "pro-month" | "pro-year")
+          : null,
+    subPeriodEnd:
+      meta.subPeriodEnd !== undefined ? meta.subPeriodEnd : legacySub ? (meta.periodEnd ?? null) : null,
+  };
+}
+
+/** Combined view: lifetime beats everything, otherwise the later expiry wins. */
+export function combineGrants(parts: GrantParts): Pick<BillingMeta, "plan" | "periodEnd" | "lifetime"> {
+  if (parts.lifetime) return { plan: "comp", periodEnd: null, lifetime: true };
+  const sub = parts.subPlan && parts.subPeriodEnd ? parts.subPeriodEnd : 0;
+  const comp = parts.compPeriodEnd || 0;
+  if (!sub && !comp) return { plan: null, periodEnd: null, lifetime: false };
+  return sub >= comp
+    ? { plan: parts.subPlan, periodEnd: sub, lifetime: false }
+    : { plan: "comp", periodEnd: comp, lifetime: false };
+}
+
+export type StripeSubscriptionLike = {
+  id?: unknown;
+  status?: unknown;
+  customer?: unknown;
+  current_period_end?: unknown;
+  cancel_at_period_end?: unknown;
+  cancel_at?: unknown;
+  items?: unknown;
+};
+
+const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+/** Period end of a Stripe subscription (ms). Newer API versions put
+ * current_period_end on the subscription item instead of the subscription. */
+export function stripePeriodEnd(sub: StripeSubscriptionLike): number | null {
+  const items = ((sub.items as { data?: Array<{ current_period_end?: number }> })?.data || []);
+  const end = Number(sub.current_period_end || items[0]?.current_period_end || 0);
+  return end > 0 ? end * 1000 : null;
+}
+
+export function stripePriceId(sub: StripeSubscriptionLike): string {
+  const item = ((sub.items as { data?: Array<{ price?: { id?: string } }> })?.data || [])[0];
+  return item?.price?.id || "";
+}
+
+/** Merge a Stripe subscription into stored billing state. Never touches the
+ * comp grant (a lifetime or longer access-code period survives any Stripe
+ * event). Cancel-at-period-end keeps access until the period end; a deleted /
+ * unpaid / expired subscription revokes only the subscription part. Events for
+ * an older subscription than the one on file cannot revoke the current one. */
+export function mergeStripeSubscription(
+  meta: BillingMeta,
+  sub: StripeSubscriptionLike,
+  plan: "pro-month" | "pro-year" | null,
+  customerId?: string,
+): BillingMeta {
+  const status = String(sub.status || "");
+  const id = String(sub.id || "");
+  const active = ACTIVE_STATUSES.has(status) && Boolean(plan);
+  if (!active && meta.stripeSubscriptionId && id && meta.stripeSubscriptionId !== id) {
+    const parts = grantParts(meta);
+    if (parts.subPlan && parts.subPeriodEnd) return { ...meta };
+  }
+  let periodEnd = active ? stripePeriodEnd(sub) : null;
+  const cancelAt = Number(sub.cancel_at || 0) * 1000;
+  if (periodEnd && cancelAt > 0) periodEnd = Math.min(periodEnd, cancelAt);
+  const parts: GrantParts = {
+    ...grantParts(meta),
+    subPlan: active ? plan : null,
+    subPeriodEnd: periodEnd,
+  };
+  return {
+    ...meta,
+    ...combineGrants(parts),
+    compPeriodEnd: parts.compPeriodEnd,
+    subPlan: parts.subPlan,
+    subPeriodEnd: parts.subPeriodEnd,
+    subStatus: status,
+    cancelAtPeriodEnd: active && (Boolean(sub.cancel_at_period_end) || cancelAt > 0),
+    stripeCustomerId: customerId || (typeof sub.customer === "string" ? sub.customer : meta.stripeCustomerId),
+    stripeSubscriptionId: id || meta.stripeSubscriptionId,
+  };
+}
+
+/** Merge an access-code grant: lifetime is sticky, and a days code only ever
+ * extends access (never shortens a longer comp or touches the subscription). */
+export function mergeCodeGrant(
+  meta: BillingMeta,
+  grant: { lifetime: boolean; periodEnd: number | null; code: string },
+): BillingMeta {
+  const prev = grantParts(meta);
+  const parts: GrantParts = {
+    ...prev,
+    lifetime: prev.lifetime || grant.lifetime,
+    compPeriodEnd: Math.max(prev.compPeriodEnd || 0, grant.periodEnd || 0) || null,
+  };
+  return {
+    ...meta,
+    ...combineGrants(parts),
+    compPeriodEnd: parts.compPeriodEnd,
+    subPlan: parts.subPlan,
+    subPeriodEnd: parts.subPeriodEnd,
+    accessCode: grant.code,
+  };
 }
 
 export function generateAccessCode(): string {

@@ -2042,3 +2042,62 @@ button[data-ap="hold"] {
 .ground-start span {
   color: #8fa9b6;
 }
+.plan-chip {
+  background: #10202acc;
+  border: 1px solid #a4f4be66;
+  color: #a4f4be;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.plan-chip[data-cancelling] {
+  border-color: #f3c14a88;
+  color: #f3c14a;
+}
+.billing-panel .close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+.billing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+.billing-actions button {
+  padding: 9px 14px;
+  border-radius: 5px;
+  border: 1px solid #ffffff22;
+  background: #183342;
+  color: #fff;
+  cursor: pointer;
+}
+.billing-actions button.danger {
+  background: #4a1d1d;
+  border-color: #e57272;
+}
+.billing-confirm {
+  width: 100%;
+  margin: 0;
+}
+.billing-message {
+  color: #a4f4be;
+}
+.legal-link {
+  color: #a8bdc7;
+  font-size: 11px;
+  margin-left: 10px;
+}
+.paywall .hint a,
+.billing-panel .hint a,
+.auth-legal a {
+  color: #a4f4be;
+}
+.auth-legal {
+  font-size: 11px;
+  color: #a8bdc7;
+  text-align: center;
+  margin: 8px 0 0;
+}

@@ -116,6 +116,11 @@ export function AuthPanel() {
           </button>
         </p>
       )}
+      <p className="auth-legal">
+        By continuing you agree to the{" "}
+        <a href="/terms" target="_blank" rel="noreferrer">Terms</a> and{" "}
+        <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.
+      </p>
     </div>
   );
 }

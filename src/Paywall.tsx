@@ -125,7 +125,10 @@ export function Paywall({
         )}
         <p className="hint">
           Payments are processed by Stripe (Madd Shopping). No charge is made until you confirm
-          checkout.
+          checkout. Plans renew automatically. No refunds; cancel anytime, access continues until
+          the end of the billing period. By subscribing you agree to the{" "}
+          <a href="/terms" target="_blank" rel="noreferrer">Terms</a> and{" "}
+          <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.
         </p>
       </section>
     </div>
