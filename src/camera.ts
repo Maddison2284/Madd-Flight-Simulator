@@ -24,14 +24,21 @@ const DEFAULT_HALF_FOV = Math.PI / 6;
  * Cesium's default 60-degree FOV is measured across the larger viewport axis.
  * Fit the aircraft to the smaller axis too, including short landscape screens.
  */
-export function cameraDistanceForAspect(aspectRatio: number): number {
+export function cameraDistanceForAspect(
+  aspectRatio: number,
+  modelRadius = MODEL_RADIUS_METERS,
+): number {
   const aspect =
     Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
   const smallerAxisRatio = Math.min(aspect, 1 / aspect);
   const smallerHalfFov = Math.atan(
     Math.tan(DEFAULT_HALF_FOV) * smallerAxisRatio,
   );
-  return Math.max(44, MODEL_RADIUS_METERS / Math.tan(smallerHalfFov * 0.62));
+  const radius =
+    Number.isFinite(modelRadius) && modelRadius > 0
+      ? modelRadius
+      : MODEL_RADIUS_METERS;
+  return Math.max(44, radius / Math.tan(smallerHalfFov * 0.62));
 }
 
 function lookAtAircraft(
@@ -61,6 +68,7 @@ function lookAtAircraft(
 export function computeExteriorCamera(
   aircraft: RenderedAircraftPose,
   aspectRatio: number,
+  modelRadius = MODEL_RADIUS_METERS,
 ): ExteriorCameraPose {
   const target = Cartesian3.fromDegrees(
     aircraft.lon,
@@ -68,7 +76,7 @@ export function computeExteriorCamera(
     aircraft.alt,
   );
   const frame = Transforms.eastNorthUpToFixedFrame(target);
-  const distance = cameraDistanceForAspect(aspectRatio);
+  const distance = cameraDistanceForAspect(aspectRatio, modelRadius);
   const heading = (aircraft.heading * Math.PI) / 180;
   const side = aircraft.mode === "wing" ? -0.98 : 0;
   const forward =
@@ -139,3 +147,46 @@ export function smoothExteriorCamera(
   const destination = Cartesian3.add(desired.target, offset, new Cartesian3());
   return lookAtAircraft(desired.target, destination, desired.up, desired.mode);
 }
+
+export const MIN_CAMERA_ZOOM = 0.3;
+export const MAX_CAMERA_ZOOM = 5;
+
+export function clampCameraZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return 1;
+  return Math.min(MAX_CAMERA_ZOOM, Math.max(MIN_CAMERA_ZOOM, zoom));
+}
+
+/** Positive deltaY zooms out (farther from the aircraft). */
+export function zoomAfterWheel(
+  zoom: number,
+  deltaY: number,
+  deltaMode = 0,
+): number {
+  if (!Number.isFinite(deltaY) || deltaY === 0) return clampCameraZoom(zoom);
+  const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? 80 : 1;
+  return clampCameraZoom(zoom * Math.exp(deltaY * unit * 0.0016));
+}
+
+/** direction < 0 zooms in, > 0 zooms out. Used for PageUp / PageDown. */
+export function zoomAfterStep(zoom: number, direction: number): number {
+  if (!direction) return clampCameraZoom(zoom);
+  return clampCameraZoom(zoom * (direction < 0 ? 0.82 : 1.22));
+}
+
+/** Scale an already-framed exterior pose without changing its look direction. */
+export function applyCameraZoom(
+  pose: ExteriorCameraPose,
+  zoom: number,
+): ExteriorCameraPose {
+  const factor = clampCameraZoom(zoom);
+  if (Math.abs(factor - 1) < 1e-9) return pose;
+  const offset = Cartesian3.subtract(
+    pose.destination,
+    pose.target,
+    new Cartesian3(),
+  );
+  Cartesian3.multiplyByScalar(offset, factor, offset);
+  const destination = Cartesian3.add(pose.target, offset, new Cartesian3());
+  return lookAtAircraft(pose.target, destination, pose.up, pose.mode);
+}
+

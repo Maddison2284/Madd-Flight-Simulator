@@ -11,16 +11,60 @@ export type Flight = {
   vs: number;
   crashed: boolean;
   stall: boolean;
+  /** Settled on the ground after a safe touchdown (or a ground start). */
+  onGround?: boolean;
+  /** Helicopter only: horizontal velocity north / east (m/s). */
+  vn?: number;
+  ve?: number;
+  /** Helicopter only: smoothed yaw rate (deg/s). */
+  yawRate?: number;
 };
 export type Controls = {
   pitch: number;
   roll: number;
   yaw: number;
   throttle: number;
+  /** Wheel brakes on the ground, 0..1. */
+  brake?: number;
 };
 export const clamp = (v: number, a: number, b: number) =>
   Math.max(a, Math.min(b, v));
 export const wrap = (n: number) => ((n % 360) + 360) % 360;
+export type Performance = {
+  stallSpeed: number;
+  minSpeed: number;
+  spawnMax: number;
+  cruiseMax: number;
+  boostMax: number;
+  thrust: number;
+  boostThrust: number;
+  drag: number;
+  boostDrag: number;
+  rollRate: number;
+  pitchRate: number;
+  yawRate: number;
+  stallSink: number;
+  /** Height of the model origin above the wheels / skids (m). Default 3. */
+  gear?: number;
+};
+
+/** Matches the original single-aircraft constants so existing tests stay exact. */
+export const DEFAULT_PERFORMANCE: Performance = {
+  stallSpeed: 55,
+  minSpeed: 15,
+  spawnMax: 250,
+  cruiseMax: 290,
+  boostMax: 1100,
+  thrust: 8,
+  boostThrust: 120,
+  drag: 0.00018,
+  boostDrag: 0.00004,
+  rollRate: 45,
+  pitchRate: 18,
+  yawRate: 10,
+  stallSink: 0.65,
+};
+
 export function spawn(
   lat: number,
   lon: number,
@@ -28,6 +72,7 @@ export function spawn(
   heading: number,
   speed: number,
   boost = false,
+  perf: Performance = DEFAULT_PERFORMANCE,
 ): Flight {
   return {
     lat: clamp(lat, -89.9, 89.9),
@@ -36,7 +81,7 @@ export function spawn(
     heading: wrap(heading),
     pitch: 0,
     roll: 0,
-    speed: clamp(speed, 55, boost ? 1100 : 250),
+    speed: clamp(speed, perf.stallSpeed, boost ? perf.boostMax : perf.spawnMax),
     boost,
     throttle: 0.65,
     vs: 0,
@@ -44,14 +89,96 @@ export function spawn(
     stall: false,
   };
 }
+/** Fixed-wing touchdown limits: anything gentler settles on the gear. */
+export const PLANE_LANDING = {
+  maxSinkMs: 5, // ~1000 ft/min
+  maxBankDeg: 20,
+  minPitchDeg: -10,
+  maxPitchDeg: 25,
+  maxSpeedStallRatio: 2.2,
+};
+
+export function isSafePlaneTouchdown(
+  f: Pick<Flight, "vs" | "roll" | "pitch" | "speed">,
+  perf: Performance,
+): boolean {
+  return (
+    f.vs >= -PLANE_LANDING.maxSinkMs &&
+    Math.abs(f.roll) <= PLANE_LANDING.maxBankDeg &&
+    f.pitch >= PLANE_LANDING.minPitchDeg &&
+    f.pitch <= PLANE_LANDING.maxPitchDeg &&
+    f.speed <= perf.stallSpeed * PLANE_LANDING.maxSpeedStallRatio
+  );
+}
+
+const moveAlong = (lat0: number, lon0: number, heading: number, distance: number) => {
+  const rad = Math.PI / 180;
+  const lat = clamp(lat0 + (distance * Math.cos(heading * rad)) / 111320, -89.9, 89.9);
+  const lon =
+    ((lon0 +
+      (distance * Math.sin(heading * rad)) /
+        (111320 * Math.max(0.002, Math.cos(lat * rad))) +
+      540) %
+      360) -
+    180;
+  return { lat, lon };
+};
+
+/** Rolling on the wheels: throttle, rolling friction, brakes, nose-wheel
+ * steering, and rotation/lift-off once above flying speed. */
+function groundRoll(
+  f: Flight,
+  c: Controls,
+  dt: number,
+  ground: number,
+  perf: Performance,
+): Flight {
+  const gear = perf.gear ?? 3;
+  const throttle = clamp(f.throttle + c.throttle * dt * 0.25, 0, 1);
+  const brake = clamp(c.brake ?? 0, 0, 1);
+  const thrust = throttle * (f.boost ? perf.boostThrust : perf.thrust);
+  const friction = f.speed > 0.05 ? 0.35 + brake * 4.5 : 0;
+  const accel = thrust - friction - (f.boost ? perf.boostDrag : perf.drag) * f.speed * f.speed;
+  let speed = Math.max(0, f.speed + accel * dt);
+  if (thrust < friction && speed < 0.3 && brake > 0) speed = 0;
+  const steer =
+    clamp(c.yaw + c.roll * 0.6, -1, 1) * 25 * clamp(speed / 5, 0, 1) * (1 - clamp(speed / 80, 0, 0.7));
+  const heading = wrap(f.heading + steer * dt);
+  const canRotate = speed > perf.stallSpeed * 0.85;
+  const pull = clamp(c.pitch, -1, 1);
+  let pitch = f.pitch;
+  if (canRotate && pull > 0.05) pitch = Math.min(15, pitch + pull * perf.pitchRate * 0.6 * dt);
+  else pitch = Math.max(0, pitch - 8 * dt);
+  pitch = Math.max(0, pitch);
+  const roll = f.roll - clamp(f.roll, -30 * dt, 30 * dt);
+  const pos = moveAlong(f.lat, f.lon, heading, speed * dt);
+  const liftOff = speed >= perf.stallSpeed * 1.05 && pitch > 3;
+  return {
+    ...f,
+    ...pos,
+    alt: ground + gear + (liftOff ? 0.05 : 0),
+    heading,
+    pitch,
+    roll,
+    speed,
+    throttle,
+    vs: liftOff ? speed * Math.sin((pitch * Math.PI) / 180) : 0,
+    stall: false,
+    crashed: false,
+    onGround: !liftOff,
+  };
+}
+
 export function step(
   f: Flight,
   c: Controls,
   dt: number,
   ground: number,
+  perf: Performance = DEFAULT_PERFORMANCE,
 ): Flight {
   if (f.crashed) return f;
   dt = clamp(dt, 0, 0.05);
+  if (f.onGround) return groundRoll(f, c, dt, ground, perf);
   const throttle = clamp(f.throttle + c.throttle * dt * 0.25, 0, 1);
   const rad = Math.PI / 180;
   // Pilot inputs are rotations about the aircraft's own axes. Convert body
@@ -59,9 +186,9 @@ export function step(
   const rates = bodyRatesToEuler(
     f.pitch,
     f.roll,
-    clamp(c.roll, -1, 1) * 45,
-    clamp(c.pitch, -1, 1) * 18,
-    clamp(c.yaw, -1, 1) * 10,
+    clamp(c.roll, -1, 1) * perf.rollRate,
+    clamp(c.pitch, -1, 1) * perf.pitchRate,
+    clamp(c.yaw, -1, 1) * perf.yawRate,
   );
   const pitch = clamp(f.pitch + (rates.pitch - f.pitch * 0.045) * dt, -65, 65);
   // Gentle stabilization acts only after all attitude controls are released.
@@ -79,18 +206,20 @@ export function step(
     (9.81 * Math.sin(bank)) /
     (Math.max(Math.abs(Math.cos(bank)), 0.25) * Math.max(f.speed, 30)) /
     rad;
-  const stall = f.speed < 55;
+  const stall = f.speed < perf.stallSpeed;
   const speed = clamp(
     f.speed +
-      (throttle * (f.boost ? 120 : 8) -
+      (throttle * (f.boost ? perf.boostThrust : perf.thrust) -
         1.5 -
-        (f.boost ? 0.00004 : 0.00018) * f.speed * f.speed -
+        (f.boost ? perf.boostDrag : perf.drag) * f.speed * f.speed -
         9.81 * Math.sin(pitch * rad)) *
         dt,
-    15,
-    f.boost ? 1100 : Math.max(290, f.speed),
+    perf.minSpeed,
+    f.boost ? perf.boostMax : Math.max(perf.cruiseMax, f.speed),
   );
-  const vs = speed * Math.sin(pitch * rad) - (stall ? (55 - speed) * 0.65 : 0);
+  const vs =
+    speed * Math.sin(pitch * rad) -
+    (stall ? (perf.stallSpeed - speed) * perf.stallSink : 0);
   const heading = wrap(f.heading + (bankTurnRate + rates.heading) * dt);
   const distance = speed * Math.cos(pitch * rad) * dt;
   const lat = clamp(
@@ -106,11 +235,12 @@ export function step(
       360) -
     180;
   const alt = f.alt + vs * dt;
-  return {
+  const gear = perf.gear ?? 3;
+  const next: Flight = {
     ...f,
     lat,
     lon,
-    alt: Math.max(ground + 3, alt),
+    alt: Math.max(ground + gear, alt),
     heading,
     pitch,
     roll,
@@ -118,7 +248,20 @@ export function step(
     throttle,
     vs,
     stall,
-    crashed: alt <= ground + 3,
+    crashed: false,
+    onGround: false,
+  };
+  if (alt > ground + gear) return next;
+  // Ground contact: a gentle touchdown settles on the gear and keeps rolling;
+  // only a hard or badly aligned impact ends the flight.
+  if (!isSafePlaneTouchdown(next, perf)) return { ...next, crashed: true };
+  return {
+    ...next,
+    alt: ground + gear,
+    vs: 0,
+    pitch: clamp(pitch, 0, 15),
+    stall: false,
+    onGround: true,
   };
 }
 

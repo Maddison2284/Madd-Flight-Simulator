@@ -1,0 +1,30 @@
+{
+  "name": "madd-flight",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-09",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "routes": [
+    {
+      "pattern": "maddflight.maddisonempire.com",
+      "custom_domain": true
+    }
+  ],
+  "workers_dev": true,
+  "kv_namespaces": [
+    {
+      "binding": "MADDFLIGHT",
+      "id": "fe89e5a1ea554d25a19ef08d5508e809"
+    }
+  ],
+  "vars": {
+    "CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsubWFkZGZsaWdodC5tYWRkaXNvbmVtcGlyZS5jb20k",
+    "STRIPE_PRICE_MONTHLY": "price_1UafIACMbFeei8oAcHIWEMdv",
+    "STRIPE_PRICE_YEARLY": "price_1UafIACMbFeei8oAmF0aOPOe",
+    "CLERK_FAPI": "clerk.maddflight.maddisonempire.com"
+  }
+}

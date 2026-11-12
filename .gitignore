@@ -7,3 +7,6 @@ dist/
 playwright-report/
 test-results/
 .env.local
+.wrangler/
+secrets/
+!public/**/*.png

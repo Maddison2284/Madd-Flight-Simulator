@@ -1,5 +1,7 @@
 import type { Controls } from "./physics";
-/** W pushes down and S pulls up about the aircraft's own lateral axis. */
+/** W pushes down and S pulls up about the aircraft's own lateral axis.
+ * +/− (and R/F) move the throttle, or the collective in a helicopter.
+ * Space applies the wheel brakes on the ground. */
 export function keyboardControls(keys: ReadonlySet<string>): Controls {
   return {
     pitch:
@@ -9,6 +11,9 @@ export function keyboardControls(keys: ReadonlySet<string>): Controls {
       Number(keys.has("arrowright") || keys.has("d")) -
       Number(keys.has("arrowleft") || keys.has("a")),
     yaw: Number(keys.has("e")) - Number(keys.has("q")),
-    throttle: Number(keys.has("=") || keys.has("+")) - Number(keys.has("-")),
+    throttle:
+      Number(keys.has("=") || keys.has("+") || keys.has("r")) -
+      Number(keys.has("-") || keys.has("f")),
+    brake: Number(keys.has(" ")),
   };
 }

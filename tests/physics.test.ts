@@ -23,8 +23,8 @@ test("pitch, roll, yaw and throttle respond to controls", () => {
   );
   assert.ok(n.pitch > 0 && n.roll > 0 && n.heading > 0 && n.throttle > 0.65);
 });
-test("terrain collision stops subsequent motion", () => {
-  const f = spawn(0, 0, 100, 0, 120);
+test("hard terrain impact crashes and stops subsequent motion", () => {
+  const f = { ...spawn(0, 0, 100, 0, 120), pitch: -30 };
   f.alt = 1;
   const n = step(f, neutral, 0.05, 0);
   assert.ok(n.crashed);
