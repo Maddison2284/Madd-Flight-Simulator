@@ -66,8 +66,10 @@ test("access codes enforce max redemptions and are reusable by the same user", (
   const other = redeemCode(first.record, "user_2", 30);
   assert.equal(other.ok, false);
   assert.equal(normalizeCode(" madd-ab12-cd34 "), "MADD-AB12-CD34");
-  assert.equal(isAdminEmail("support@maddflight.maddisonempire.com"), true);
-  assert.equal(isAdminEmail("someone@else.com"), false);
+  assert.equal(isAdminEmail("Admin@Example.com", "ops@example.com, admin@example.com"), true);
+  assert.equal(isAdminEmail("someone@else.com", "admin@example.com"), false);
+  assert.equal(isAdminEmail("admin@example.com", undefined), false);
+  assert.equal(isAdminEmail("", ","), false);
 });
 
 test("unlock tokens verify and expire with the subscription period", async () => {

@@ -18,10 +18,6 @@ All assets below are commercial-OK (CC0 or CC BY 4.0). No NC/ND, no ripped game 
 - License: https://creativecommons.org/licenses/by/4.0/
 - Modifications: used as published in gods-eye-view; no mesh re-authoring
 
-### MADD BJ-35 (`public/models/business-jet.glb`)
-- Original low-poly business jet authored for this simulator
-- License: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
-
 ### Airbus A320, logo-free (`public/models/a320.glb`)
 - Author: amvlab
 - Source: https://github.com/amvlab/aircraft-models (models/A320_nologo.glb)

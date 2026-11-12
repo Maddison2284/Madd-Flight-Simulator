@@ -156,6 +156,11 @@ test("events for other products (Madd Shopping) are acknowledged and ignored", a
   assert.equal(meta("user_4").plan, "pro-month");
 });
 
+test("billing portal route requires sign-in", async () => {
+  const res = await worker.fetch(new Request("https://maddflight.maddisonempire.com/api/billing/portal", { method: "POST" }), { ...env, STRIPE_PORTAL_CONFIG: "bpc_test" });
+  assert.equal(res.status, 401);
+});
+
 test.after(() => {
   globalThis.fetch = realFetch;
 });

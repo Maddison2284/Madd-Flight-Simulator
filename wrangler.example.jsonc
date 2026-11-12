@@ -25,6 +25,7 @@
     "CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsubWFkZGZsaWdodC5tYWRkaXNvbmVtcGlyZS5jb20k",
     "STRIPE_PRICE_MONTHLY": "price_1UafIACMbFeei8oAcHIWEMdv",
     "STRIPE_PRICE_YEARLY": "price_1UafIACMbFeei8oAmF0aOPOe",
+    "STRIPE_PORTAL_CONFIG": "bpc_1UaoKeCMbFeei8oANpryAIQL",
     "CLERK_FAPI": "clerk.maddflight.maddisonempire.com"
   }
 }

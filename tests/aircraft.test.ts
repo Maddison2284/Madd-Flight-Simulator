@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { AIRCRAFT, aircraftById, stallKnots } from "../src/aircraft.ts";
+import { AIRCRAFT, DEFAULT_AIRCRAFT_ID, aircraftById, stallKnots } from "../src/aircraft.ts";
 import { DEFAULT_PERFORMANCE, spawn, step } from "../src/physics.ts";
 
-test("catalog has 4–6 commercial-ok aircraft with model files", () => {
-  assert.ok(AIRCRAFT.length >= 4 && AIRCRAFT.length <= 6);
+test("catalog has 4–8 commercial-ok aircraft with model files", () => {
+  assert.ok(AIRCRAFT.length >= 4 && AIRCRAFT.length <= 8);
   for (const item of AIRCRAFT) {
     assert.ok(item.uri.startsWith("/models/"));
     const path = new URL(`../public${item.uri}`, import.meta.url);
@@ -20,9 +20,11 @@ test("catalog has 4–6 commercial-ok aircraft with model files", () => {
   }
 });
 
-test("BJ-35 keeps the original default performance", () => {
-  const jet = aircraftById("bj35");
-  assert.deepEqual(jet.performance, DEFAULT_PERFORMANCE);
+test("removed BJ-35 and unknown saved ids fall back to the default aircraft", () => {
+  assert.equal(aircraftById("bj35").id, DEFAULT_AIRCRAFT_ID);
+  assert.equal(aircraftById("nope").id, DEFAULT_AIRCRAFT_ID);
+  assert.equal(aircraftById(null).id, DEFAULT_AIRCRAFT_ID);
+  assert.ok(!AIRCRAFT.some((a) => /bj-?35/i.test(a.id + a.name)));
 });
 
 test("per-aircraft stall and spawn clamps differ from the default jet", () => {

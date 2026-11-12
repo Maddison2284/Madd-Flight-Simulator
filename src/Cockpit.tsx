@@ -9,7 +9,7 @@ export type CockpitKind = "sixpack" | "glass" | "airbus" | "heli" | "hud";
 export function cockpitKind(aircraft: Pick<Aircraft, "id" | "engine">): CockpitKind {
   if (aircraft.id === "c172") return "sixpack";
   if (aircraft.id === "a320") return "airbus";
-  if (aircraft.id === "fighter") return "hud";
+  if (aircraft.id === "fighter" || aircraft.engine === "saucer") return "hud";
   if (aircraft.engine === "rotor") return "heli";
   return "glass";
 }
@@ -484,7 +484,7 @@ export function Cockpit({ flight, aircraft }: { flight: Flight; aircraft: Pick<A
       {kind === "hud" && <Hud s={s} />}
       <svg className="ck-panel" viewBox="0 0 1600 560" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
         {kind === "sixpack" && <SixPack s={s} />}
-        {kind === "glass" && <GlassDeck s={s} airbus={false} title={aircraft.id === "citation" ? "CITATION · PRO LINE" : "MADD BJ-35 · FLIGHT DECK"} />}
+        {kind === "glass" && <GlassDeck s={s} airbus={false} title={aircraft.id === "citation" ? "CITATION · PRO LINE" : `${aircraft.name.toUpperCase()} · FLIGHT DECK`} />}
         {kind === "airbus" && <GlassDeck s={s} airbus title="A320 · FBW" />}
         {kind === "heli" && <HeliPanel s={s} />}
         {kind === "hud" && <FighterPanel s={s} />}

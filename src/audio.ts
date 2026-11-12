@@ -21,12 +21,24 @@ function readMuted(): boolean {
   }
 }
 
+export const DEFAULT_VOLUME = 0.7;
+
+/** Stored volume, or the default when nothing valid is stored. (Bug fixed:
+ * `Number(localStorage.getItem(..))` turned a missing key, null, into 0, so
+ * every new player started at volume 0 and heard nothing.) */
+export function parseVolume(raw: string | null | undefined): number {
+  if (raw == null || raw.trim() === "") return DEFAULT_VOLUME;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return DEFAULT_VOLUME;
+  return Math.max(0, Math.min(1, value));
+}
+
 function readVolume(): number {
   try {
-    const value = Number(localStorage.getItem(VOLUME_KEY));
-    if (Number.isFinite(value)) return Math.max(0, Math.min(1, value));
-  } catch {}
-  return 0.7;
+    return parseVolume(localStorage.getItem(VOLUME_KEY));
+  } catch {
+    return DEFAULT_VOLUME;
+  }
 }
 
 function noiseBuffer(ctx: AudioContext, seconds = 2): AudioBuffer {
@@ -47,6 +59,8 @@ export class FlightAudio {
   private engineOsc2: OscillatorNode | null = null;
   private noiseSrc: AudioBufferSourceNode | null = null;
   private stallOsc: OscillatorNode | null = null;
+  private slapOsc: OscillatorNode | null = null;
+  private slapDepth: GainNode | null = null;
   private started = false;
   private wasCrashed = false;
   private engineKind: EngineKind | null = null;
@@ -80,6 +94,29 @@ export class FlightAudio {
         this.ctx.currentTime,
         0.05,
       );
+  }
+
+  /** The AudioContext state, for diagnostics ("none" before first gesture). */
+  get state(): string {
+    return this.ctx?.state ?? "none";
+  }
+
+  /** Install once: the first click/tap/key anywhere creates and resumes the
+   * AudioContext inside that user gesture (browsers block autoplay). */
+  installGestureUnlock() {
+    if (typeof window === "undefined") return;
+    const unlock = () => {
+      void this.start().then(() => {
+        if (this.started) {
+          window.removeEventListener("pointerdown", unlock, true);
+          window.removeEventListener("keydown", unlock, true);
+          window.removeEventListener("touchend", unlock, true);
+        }
+      });
+    };
+    window.addEventListener("pointerdown", unlock, true);
+    window.addEventListener("keydown", unlock, true);
+    window.addEventListener("touchend", unlock, true);
   }
 
   /** Must be called from a user gesture (Start flight, unmute, etc.). */
@@ -124,7 +161,19 @@ export class FlightAudio {
     osc2Gain.gain.value = 0.06;
     osc2.connect(osc2Gain);
     osc2Gain.connect(engineFilter);
-    engineFilter.connect(engineGain);
+    // Rotor "blade slap": an LFO at blade-pass frequency modulating the
+    // engine level (depth is 0 for non-rotorcraft).
+    const pulse = ctx.createGain();
+    pulse.gain.value = 1;
+    const slapOsc = ctx.createOscillator();
+    slapOsc.type = "sine";
+    slapOsc.frequency.value = 13;
+    const slapDepth = ctx.createGain();
+    slapDepth.gain.value = 0;
+    slapOsc.connect(slapDepth);
+    slapDepth.connect(pulse.gain);
+    engineFilter.connect(pulse);
+    pulse.connect(engineGain);
     engineGain.connect(master);
 
     const windGain = ctx.createGain();
@@ -153,6 +202,9 @@ export class FlightAudio {
     osc.start();
     osc2.start();
     stallOsc.start();
+    slapOsc.start();
+    this.slapOsc = slapOsc;
+    this.slapDepth = slapDepth;
 
     this.master = master;
     this.engineGain = engineGain;
@@ -191,7 +243,8 @@ export class FlightAudio {
     const throttle = flying ? Math.max(0, Math.min(1, state.throttle)) : 0;
     const speed = flying ? state.speed : 0;
     if (this.engineGain) {
-      const base = state.engine === "rotor" ? 0.22 : state.engine === "prop" ? 0.2 : 0.16;
+      const base =
+        state.engine === "rotor" ? 0.22 : state.engine === "prop" ? 0.2 : state.engine === "saucer" ? 0.12 : 0.16;
       const level = flying ? base * (0.25 + throttle * 0.85 + (state.boost ? 0.15 : 0)) : 0;
       this.engineGain.gain.setTargetAtTime(level, t, 0.08);
     }
@@ -201,7 +254,9 @@ export class FlightAudio {
           ? 500 + throttle * 1200
           : state.engine === "rotor"
             ? 350 + throttle * 600
-            : 700 + throttle * 1800;
+            : state.engine === "saucer"
+              ? 900 + throttle * 900
+              : 700 + throttle * 1800;
       this.engineFilter.frequency.setTargetAtTime(cutoff, t, 0.1);
     }
     if (this.engineOsc) {
@@ -210,7 +265,9 @@ export class FlightAudio {
           ? 70 + throttle * 90
           : state.engine === "rotor"
             ? 28 + throttle * 36
-            : 55 + throttle * 70;
+            : state.engine === "saucer"
+              ? 110 + throttle * 60
+              : 55 + throttle * 70;
       this.engineOsc.frequency.setTargetAtTime(freq, t, 0.1);
     }
     if (this.engineOsc2) {
@@ -219,8 +276,16 @@ export class FlightAudio {
           ? 35 + throttle * 40
           : state.engine === "rotor"
             ? 12 + throttle * 16
-            : 28 + throttle * 30;
+            : state.engine === "saucer"
+              ? 55.5 + throttle * 30
+              : 28 + throttle * 30;
       this.engineOsc2.frequency.setTargetAtTime(freq, t, 0.1);
+    }
+    if (this.slapDepth && this.slapOsc) {
+      const rotor = state.engine === "rotor" && flying;
+      const saucer = state.engine === "saucer" && flying;
+      this.slapDepth.gain.setTargetAtTime(rotor ? 0.55 : saucer ? 0.25 : 0, t, 0.1);
+      this.slapOsc.frequency.setTargetAtTime(rotor ? 12 + throttle * 2 : 3.5, t, 0.2);
     }
     if (this.windGain) {
       const wind = flying ? Math.min(0.28, (speed / 280) * 0.28) : 0;

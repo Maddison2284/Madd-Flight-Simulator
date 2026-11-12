@@ -109,3 +109,20 @@ test("plane: hard or steep impact still crashes", () => {
     f = step(f, neutral, 1 / 120, 0);
   assert.ok(f.crashed && !f.onGround);
 });
+
+test("saucer hovers, climbs and lands vertically with no stall", () => {
+  const saucer = aircraftById("saucer");
+  let f = spawnAircraft(saucer, 37, -122, 1.4, 0, 0, false, true);
+  f = run(f, ["r"], 2.5, 0, saucer);
+  f = run(f, [], 5, 0, saucer);
+  assert.ok(!f.onGround && f.alt > 15 && !f.stall);
+  f = { ...f, throttle: 0.5 };
+  f = run(f, [], 8, 0, saucer);
+  const a = f.alt;
+  f = run(f, [], 15, 0, saucer);
+  assert.ok(Math.abs(f.alt - a) < 3 && Math.abs(f.vs) < 0.2, `hover ${f.alt - a}`);
+  f = run(f, ["f"], 0.4, 0, saucer);
+  for (let i = 0; i < 120 * 120 && !f.onGround && !f.crashed; i++)
+    f = stepAircraft(saucer, f, neutral, 1 / 120, 0);
+  assert.ok(f.onGround && !f.crashed);
+});

@@ -1,7 +1,6 @@
-import { UserButton, useAuth, useUser } from "@clerk/react";
+import { UserButton, useAuth } from "@clerk/react";
 import { AuthPanel } from "./AuthPanel";
 import { useEffect, useState } from "react";
-import { ADMIN_EMAIL } from "./billing";
 import { useEntitlement } from "./entitlement-client";
 
 type CodeRow = {
@@ -16,15 +15,14 @@ type CodeRow = {
 
 export function AdminPage() {
   const { isLoaded, isSignedIn } = useAuth();
-  const { user } = useUser();
   const entitlement = useEntitlement();
   const [codes, setCodes] = useState<CodeRow[]>([]);
   const [error, setError] = useState("");
   const [type, setType] = useState<"lifetime" | "days">("lifetime");
   const [days, setDays] = useState(30);
   const [maxRedemptions, setMaxRedemptions] = useState(10);
-  const email = user?.primaryEmailAddress?.emailAddress || "";
-  const isAdmin = entitlement.state?.isAdmin || email.toLowerCase() === ADMIN_EMAIL;
+  // Server decides (verified email vs the ADMIN_EMAILS Worker secret); no email in the client.
+  const isAdmin = entitlement.state?.isAdmin === true;
 
   const load = async () => {
     setError("");
@@ -50,7 +48,7 @@ export function AdminPage() {
       </header>
       <section className="panel dispatch admin-panel">
         <div className="eyebrow">
-          ADMIN <span>{ADMIN_EMAIL}</span>
+          ADMIN
         </div>
         <h1>Access codes</h1>
         {!isLoaded ? (
@@ -58,7 +56,7 @@ export function AdminPage() {
         ) : !isSignedIn ? (
           <AuthPanel />
         ) : !isAdmin ? (
-          <p>This page is limited to {ADMIN_EMAIL}.</p>
+          <p>This page is limited to administrators.</p>
         ) : (
           <>
             <p className="intro">

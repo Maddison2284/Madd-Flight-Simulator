@@ -65,10 +65,53 @@ function lookAtAircraft(
 }
 
 /** Compute an exterior view using the aircraft pose already rendered this frame. */
+export type CameraOrbit = { yaw: number; pitch: number };
+
+/** Mouse/touch orbit limits: elevation stays between just below the
+ * aircraft and nearly overhead, so the view never flips. */
+export const MIN_ORBIT_ELEVATION = (3 * Math.PI) / 180;
+export const MAX_ORBIT_ELEVATION = (80 * Math.PI) / 180;
+export const ORBIT_YAW_PER_PX = 0.006;
+export const ORBIT_PITCH_PER_PX = 0.004;
+
+/** Pitch offset that keeps a mode's base elevation inside the limits. */
+export function clampOrbitPitch(mode: ExteriorCameraMode, pitch: number): number {
+  const base = baseElevation(mode);
+  if (!Number.isFinite(pitch)) return 0;
+  return Math.min(MAX_ORBIT_ELEVATION - base, Math.max(MIN_ORBIT_ELEVATION - base, pitch));
+}
+
+/** Drag in screen pixels → orbit. Right drag swings the camera right (view
+ * rotates left); drag up raises the camera to look down on the aircraft.
+ * The camera never goes below 3° so it can't dip under the ground. */
+export function orbitAfterDrag(
+  orbit: CameraOrbit,
+  mode: ExteriorCameraMode,
+  dx: number,
+  dy: number,
+): CameraOrbit {
+  let yaw = orbit.yaw - dx * ORBIT_YAW_PER_PX;
+  yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+  return { yaw, pitch: clampOrbitPitch(mode, orbit.pitch - dy * ORBIT_PITCH_PER_PX) };
+}
+
+function modeOffset(mode: ExteriorCameraMode) {
+  const side = mode === "wing" ? -0.98 : 0;
+  const forward = mode === "front" ? 0.97 : mode === "wing" ? -0.18 : -0.96;
+  const height = mode === "wing" ? 0.23 : mode === "front" ? 0.24 : 0.28;
+  return { side, forward, height };
+}
+
+function baseElevation(mode: ExteriorCameraMode) {
+  const { side, forward, height } = modeOffset(mode);
+  return Math.atan2(height, Math.hypot(side, forward));
+}
+
 export function computeExteriorCamera(
   aircraft: RenderedAircraftPose,
   aspectRatio: number,
   modelRadius = MODEL_RADIUS_METERS,
+  orbit: CameraOrbit = { yaw: 0, pitch: 0 },
 ): ExteriorCameraPose {
   const target = Cartesian3.fromDegrees(
     aircraft.lon,
@@ -78,11 +121,17 @@ export function computeExteriorCamera(
   const frame = Transforms.eastNorthUpToFixedFrame(target);
   const distance = cameraDistanceForAspect(aspectRatio, modelRadius);
   const heading = (aircraft.heading * Math.PI) / 180;
-  const side = aircraft.mode === "wing" ? -0.98 : 0;
-  const forward =
-    aircraft.mode === "front" ? 0.97 : aircraft.mode === "wing" ? -0.18 : -0.96;
-  const height =
-    aircraft.mode === "wing" ? 0.23 : aircraft.mode === "front" ? 0.24 : 0.28;
+  let { side, forward, height } = modeOffset(aircraft.mode);
+  if (orbit.yaw || orbit.pitch) {
+    // Same radius, rotated by the user's orbit around the aircraft.
+    const h = Math.hypot(side, forward);
+    const r = Math.hypot(h, height);
+    const az = Math.atan2(side, forward) + orbit.yaw;
+    const el = baseElevation(aircraft.mode) + clampOrbitPitch(aircraft.mode, orbit.pitch);
+    side = r * Math.cos(el) * Math.sin(az);
+    forward = r * Math.cos(el) * Math.cos(az);
+    height = r * Math.sin(el);
+  }
   // Body-horizontal right/forward to local east/north. North heading is zero.
   const offset = new Cartesian3(
     (side * Math.cos(heading) + forward * Math.sin(heading)) * distance,

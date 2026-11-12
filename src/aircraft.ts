@@ -1,7 +1,6 @@
 import type { ModelFix } from "./attitude";
-import type { RotorcraftParams } from "./heli";
+import { SAUCER, type RotorcraftParams } from "./heli";
 import {
-  DEFAULT_PERFORMANCE,
   type Performance,
 } from "./physics";
 
@@ -119,30 +118,6 @@ export const AIRCRAFT: Aircraft[] = [
     },
   },
   {
-    id: "bj35",
-    name: "MADD BJ-35",
-    shortName: "BJ-35",
-    blurb: "Generic business jet · twin engine",
-    uri: "/models/business-jet.glb",
-    engine: "jet",
-    radiusMeters: 12,
-    modelFix: { heading: 0, pitch: 0, roll: 0 },
-    eye: [4.2, 0.4, 0.9],
-    performance: { ...DEFAULT_PERFORMANCE },
-    defaultAltFt: 3000,
-    defaultSpeedKt: 230,
-    plannerMinKt: 110,
-    plannerMaxKt: 2000,
-    credit: {
-      title: "MADD BJ-35 generic business jet",
-      author: "MADD Flight",
-      license: "CC0 1.0",
-      licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
-      sourceUrl: "https://maddflight.maddisonempire.com/",
-      modifications: "Original low-poly model authored for this simulator.",
-    },
-  },
-  {
     id: "a320",
     name: "Airbus A320",
     shortName: "A320",
@@ -257,13 +232,55 @@ export const AIRCRAFT: Aircraft[] = [
         "Optimized webp GLB via gods-eye-view (bilawalsidhu); used with original author credit.",
     },
   },
+  {
+    id: "saucer",
+    name: "MADD Saucer",
+    shortName: "Saucer",
+    blurb: "Fictional spacecraft · assisted hover",
+    uri: "/models/saucer.glb",
+    engine: "saucer",
+    radiusMeters: 9,
+    modelFix: { heading: 0, pitch: 0, roll: 0 },
+    eye: [1.0, 0, 1.2],
+    performance: {
+      stallSpeed: 1,
+      minSpeed: 0,
+      spawnMax: 130,
+      cruiseMax: 130,
+      boostMax: 130,
+      thrust: 0,
+      boostThrust: 0,
+      drag: 0,
+      boostDrag: 0,
+      rollRate: 40,
+      pitchRate: 30,
+      yawRate: 60,
+      stallSink: 0,
+    },
+    hover: SAUCER,
+    defaultAltFt: 1500,
+    defaultSpeedKt: 0,
+    plannerMinKt: 0,
+    plannerMaxKt: 250,
+    credit: {
+      title: "MADD Saucer",
+      author: "MADD Flight",
+      license: "CC0 1.0",
+      licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
+      sourceUrl: "https://maddflight.maddisonempire.com/",
+      modifications: "Original procedural model (scripts/build-saucer.mjs).",
+    },
+  },
 ];
 
 export const DEFAULT_AIRCRAFT_ID = "citation";
 const AIRCRAFT_KEY = "maddflight-aircraft";
 
 export function aircraftById(id: string | null | undefined): Aircraft {
-  return AIRCRAFT.find((item) => item.id === id) ?? AIRCRAFT[1];
+  return (
+    AIRCRAFT.find((item) => item.id === id) ??
+    AIRCRAFT.find((item) => item.id === DEFAULT_AIRCRAFT_ID)!
+  );
 }
 
 export function readAircraftId(): string {

@@ -1,7 +1,6 @@
 /** Shared billing/trial helpers used by the Worker and unit tests. */
 
 export const TRIAL_MS = 5 * 60 * 1000;
-export const ADMIN_EMAIL = "support@maddflight.maddisonempire.com";
 export const PRICE_AMOUNT_MONTH = 499;
 export const PRICE_AMOUNT_YEAR = 2999;
 
@@ -70,7 +69,7 @@ export function computeEntitlement(input: {
   plan?: Entitlement["plan"];
   periodEnd?: number | null;
   lifetime?: boolean;
-  /** Admins (verified ADMIN_EMAIL) always fly free: no trial, no paywall. */
+  /** Admins (a verified email listed in the Worker ADMIN_EMAILS secret) always fly free: no trial, no paywall. */
   admin?: boolean;
   cancelAtPeriodEnd?: boolean;
   hasSubscription?: boolean;
@@ -123,8 +122,21 @@ export function normalizeCode(code: string): string {
   return code.trim().toUpperCase().replace(/\s+/g, "");
 }
 
-export function isAdminEmail(email: string | null | undefined): boolean {
-  return normalizeEmail(email || "") === ADMIN_EMAIL;
+/**
+ * Admin emails live only in the Worker secret ADMIN_EMAILS (comma-separated),
+ * never in source or the client bundle. Unset → nobody is admin (fail closed).
+ */
+export function isAdminEmail(
+  email: string | null | undefined,
+  adminEmails: string | null | undefined,
+): boolean {
+  const e = normalizeEmail(email || "");
+  if (!e || !adminEmails) return false;
+  return adminEmails
+    .split(",")
+    .map((a) => normalizeEmail(a))
+    .filter(Boolean)
+    .includes(e);
 }
 
 export type RedeemResult =

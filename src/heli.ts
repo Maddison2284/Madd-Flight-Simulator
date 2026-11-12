@@ -219,3 +219,22 @@ function move(f: Flight, vn: number, ve: number, dt: number) {
     180;
   return { lat, lon };
 }
+
+/** MADD Saucer: same hover model, tuned as a fictional spacecraft. Stronger
+ * tilt and lower drag (~250 kt), quick yaw, almost no ground effect or ETL. */
+export const SAUCER: RotorcraftParams = {
+  ...HELI,
+  gear: 1.4,
+  collectiveRate: 0.3,
+  maxTiltDeg: 30,
+  attitudeResponse: 3.5,
+  verticalDamping: 1.2,
+  dragLinear: 0.02,
+  dragQuadratic: 0.00012,
+  yawRateMax: 90,
+  yawResponse: 3,
+  rotorDiameter: 10,
+  groundEffect: 0.05,
+  etl: 0,
+  landing: { maxSinkMs: 4.5, maxTiltDeg: 20, maxSpeedMs: 15 },
+};

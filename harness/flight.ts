@@ -66,7 +66,7 @@ v.clock.onTick.addEventListener(() => {
     id: spec.id, t: +simTime.toFixed(2), alt: +f.alt.toFixed(2), vs: +f.vs.toFixed(2), kt: +(f.speed * 1.943844).toFixed(1),
     hdg: +f.heading.toFixed(1), pitch: +f.pitch.toFixed(1), roll: +f.roll.toFixed(1), collective: +f.throttle.toFixed(3),
     onGround: !!f.onGround, crashed: f.crashed, stall: f.stall, rpm: +rotors.rpm.toFixed(3), maxRpm: +maxRpm.toFixed(3),
-    angles: Object.fromEntries(["mf_main_rotor", "mf_tail_rotor", "mf_prop"].map((n) => [n, +rotors.angle(n).toFixed(3)])),
+    angles: Object.fromEntries(["mf_main_rotor", "mf_tail_rotor", "mf_prop", "mf_saucer_ring"].map((n) => [n, +rotors.angle(n).toFixed(3)])),
     lat: f.lat, lon: f.lon, errors,
   };
   (window as any).info = info;

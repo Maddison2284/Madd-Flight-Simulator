@@ -11,6 +11,9 @@ import {
   smoothExteriorCamera,
   zoomAfterStep,
   zoomAfterWheel,
+  orbitAfterDrag,
+  clampCameraZoom,
+  type CameraOrbit,
   type ExteriorCameraPose,
   type ExteriorCameraMode,
 } from "./camera";
@@ -26,7 +29,7 @@ import {
   stepAircraft,
 } from "./flight-model";
 import { hoverTrimCollective, HOVER_COLLECTIVE } from "./heli";
-import { RotorAnimator } from "./rotors";
+import { ROTOR_PARTS, RotorAnimator } from "./rotors";
 import { TouchControls, type TouchAxes } from "./TouchControls";
 import { Cockpit } from "./Cockpit";
 import {
@@ -68,6 +71,10 @@ const cameraLabels: Record<string, string> = {
 };
 const initial = spawn(37.807, -122.475, 900, 90, 120);
 const rotors = new RotorAnimator();
+/** Shortest signed angle from a to b (radians). */
+const angleDelta = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
+flightAudio.installGestureUnlock();
+(window as unknown as { __mfAudio?: () => string }).__mfAudio = () => flightAudio.state;
 const clerkPublishableKey = (
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || ""
 ).trim();
@@ -137,6 +144,9 @@ function App() {
     pending = useRef(false),
     tiles = useRef<C.Cesium3DTileset | null>(null),
     cameraZoom = useRef(1),
+    orbit = useRef<CameraOrbit>({ yaw: 0, pitch: 0 }),
+    orbitTarget = useRef<CameraOrbit>({ yaw: 0, pitch: 0 }),
+    orbitInteractAt = useRef(0),
     cameraZoomTarget = useRef(1),
     heightExclude = useRef<object[]>([]),
     airborneSince = useRef(0),
@@ -563,6 +573,71 @@ function App() {
     window.addEventListener("blur", blur);
     window.addEventListener("wheel", wheel, { passive: false });
     host.current.addEventListener("contextmenu", contextMenu);
+    // Mouse / touch orbit, only on the 3D canvas and only while flying an
+    // exterior view: drag orbits, pinch zooms, double-click (or double-tap)
+    // resets to the default view. UI controls and flight keys are untouched.
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinch = 0;
+    let lastTap = 0;
+    const onCanvas = (e: PointerEvent) =>
+      e.target instanceof HTMLCanvasElement && host.current?.contains(e.target);
+    const orbitEnabled = () => active.current && camera.current !== "cockpit";
+    const resetOrbit = () => {
+      orbitTarget.current = { yaw: 0, pitch: 0 };
+      cameraZoomTarget.current = 1;
+      orbitInteractAt.current = 0;
+    };
+    const pointerDown = (e: PointerEvent) => {
+      if (!orbitEnabled() || !onCanvas(e)) return;
+      if (e.pointerType !== "mouse") {
+        const now = performance.now();
+        if (pointers.size === 0 && now - lastTap < 300) resetOrbit();
+        lastTap = now;
+      } else if (e.button !== 0) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinch = Math.hypot(a.x - b.x, a.y - b.y);
+      }
+      orbitInteractAt.current = performance.now();
+      e.preventDefault();
+    };
+    const pointerMove = (e: PointerEvent) => {
+      const prev = pointers.get(e.pointerId);
+      if (!prev || !orbitEnabled()) return;
+      const next = { x: e.clientX, y: e.clientY };
+      pointers.set(e.pointerId, next);
+      orbitInteractAt.current = performance.now();
+      if (pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinch > 0 && d > 0)
+          cameraZoomTarget.current = clampCameraZoom(cameraZoomTarget.current * (pinch / d));
+        pinch = d;
+        return;
+      }
+      orbitTarget.current = orbitAfterDrag(
+        orbitTarget.current,
+        camera.current as ExteriorCameraMode,
+        next.x - prev.x,
+        next.y - prev.y,
+      );
+    };
+    const pointerUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch = 0;
+    };
+    const dblClick = (e: MouseEvent) => {
+      if (!orbitEnabled() || !(e.target instanceof HTMLCanvasElement)) return;
+      resetOrbit();
+    };
+    const hostEl = host.current;
+    hostEl.addEventListener("pointerdown", pointerDown);
+    window.addEventListener("pointermove", pointerMove);
+    window.addEventListener("pointerup", pointerUp);
+    window.addEventListener("pointercancel", pointerUp);
+    hostEl.addEventListener("dblclick", dblClick);
     let last = performance.now(),
       ui = 0,
       terrainTime = 0,
@@ -574,6 +649,14 @@ function App() {
       last = now;
       plane.show = active.current && camera.current !== "cockpit";
       rotors.update(aircraftRef.current, flight.current, dt, active.current && !paused.current);
+      if (active.current) rotors.check(v.scene, aircraftRef.current);
+      (window as unknown as { __mfRotors?: unknown }).__mfRotors = {
+        matched: rotors.matched,
+        rpm: rotors.rpm,
+        angles: Object.fromEntries(
+          (ROTOR_PARTS[aircraftRef.current.id] ?? []).map((p) => [p.node, rotors.angle(p.node)]),
+        ),
+      };
       v.scene.screenSpaceCameraController.enableInputs = !active.current;
       v.scene.screenSpaceCameraController.enableZoom = true;
       v.scene.screenSpaceCameraController.enableCollisionDetection =
@@ -738,10 +821,32 @@ function App() {
       if (camera.current !== "cockpit") {
         const aspect =
           v.scene.canvas.clientWidth / Math.max(1, v.scene.canvas.clientHeight);
+        // Ease back to the default view ~3 s after the last drag.
+        if (
+          orbitInteractAt.current &&
+          performance.now() - orbitInteractAt.current > 3000 &&
+          pointers.size === 0
+        ) {
+          const k = Math.exp(-dt / 0.8);
+          orbitTarget.current = {
+            yaw: orbitTarget.current.yaw * k,
+            pitch: orbitTarget.current.pitch * k,
+          };
+        }
+        const oa = 1 - Math.exp(-dt / 0.08);
+        orbit.current = {
+          yaw: orbit.current.yaw + angleDelta(orbit.current.yaw, orbitTarget.current.yaw) * oa,
+          pitch: orbit.current.pitch + (orbitTarget.current.pitch - orbit.current.pitch) * oa,
+        };
         const desired = computeExteriorCamera(
           { ...b, mode: camera.current as ExteriorCameraMode },
           aspect,
           aircraftRef.current.radiusMeters,
+          orbit.current,
+        );
+        v.container.closest("main")?.setAttribute(
+          "data-camera-orbit",
+          `${orbit.current.yaw.toFixed(3)},${orbit.current.pitch.toFixed(3)}`,
         );
         previousCamera = smoothExteriorCamera(previousCamera, desired, dt);
         const zoomAlpha = 1 - Math.exp(-dt / 0.18);
@@ -806,6 +911,11 @@ function App() {
       window.removeEventListener("blur", blur);
       window.removeEventListener("wheel", wheel);
       host.current?.removeEventListener("contextmenu", contextMenu);
+      hostEl.removeEventListener("pointerdown", pointerDown);
+      window.removeEventListener("pointermove", pointerMove);
+      window.removeEventListener("pointerup", pointerUp);
+      window.removeEventListener("pointercancel", pointerUp);
+      hostEl.removeEventListener("dblclick", dblClick);
       click.destroy();
       planeEntity.current = null;
       if (host.current)
@@ -1356,7 +1466,7 @@ function App() {
       </header>
       {flying && flightHint && (
         <div className="flight-hint" role="note">
-          Scroll to zoom · O autopilot · M mute · [ ] or G for gauges · ? for controls
+          Drag to look around · scroll to zoom · O autopilot · M mute · [ ] or G for gauges · ? for controls
         </div>
       )}
       {!flying ? (
@@ -2020,6 +2130,18 @@ function App() {
               setBillingBusy(false);
             }
           }}
+          onPortal={async () => {
+            setBillingBusy(true);
+            setBillingError("");
+            try {
+              const r = await entitlement.withToken<{ url?: string }>("/api/billing/portal", { method: "POST" });
+              if (r?.url) window.location.href = r.url;
+            } catch (err) {
+              setBillingError(err instanceof Error ? err.message : "Could not open the billing portal.");
+            } finally {
+              setBillingBusy(false);
+            }
+          }}
           onResume={async () => {
             setBillingBusy(true);
             setBillingError("");
@@ -2071,6 +2193,10 @@ function App() {
                 ["Q / E", "Pedals: yaw left / right (tail rotor)"],
                 ["I", "Invert pitch keys"],
                 ["Scroll wheel", "Zoom camera in / out"],
+            ["Drag on the view", "Orbit the camera (pinch to zoom on touch)"],
+            ["Double-click", "Reset to the default camera"],
+                ["Drag on the view", "Orbit the camera (pinch to zoom on touch)"],
+                ["Double-click", "Reset to the default camera"],
                 ["Page Up / Page Down", "Zoom camera in / out"],
                 ["[ / ]", "Smaller / larger gauges"],
                 ["G", "Cycle gauge size"],

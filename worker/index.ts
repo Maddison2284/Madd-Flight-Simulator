@@ -1,6 +1,5 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import {
-  ADMIN_EMAIL,
   applyTrialHeartbeat,
   computeEntitlement,
   emptyTrial,
@@ -34,7 +33,11 @@ export interface Env {
   GOOGLE_MAPS_API_KEY?: string;
   STRIPE_PRICE_MONTHLY: string;
   STRIPE_PRICE_YEARLY: string;
+  /** Billing Portal configuration (cancel at period end, no proration). */
+  STRIPE_PORTAL_CONFIG?: string;
   ENVIRONMENT?: string;
+  /** Secret: comma-separated admin emails (kept out of source and the client). */
+  ADMIN_EMAILS?: string;
 }
 
 const TRIAL_KEY = (userId: string) => `trial:${userId}`;
@@ -46,7 +49,7 @@ type ClerkUser = {
   id: string;
   email: string | null;
   emails: string[];
-  /** True only when a *verified* email on the account is ADMIN_EMAIL. */
+  /** True only when a *verified* email on the account is in ADMIN_EMAILS. */
   isAdmin: boolean;
   firstName?: string | null;
   publicMetadata: Record<string, unknown>;
@@ -90,7 +93,7 @@ async function requireUser(request: Request, env: Env): Promise<ClerkUser | Resp
       id: user.id,
       email: primary ? normalizeEmail(primary) : emails[0] || null,
       emails,
-      isAdmin: verifiedEmails.some((e) => isAdminEmail(e)),
+      isAdmin: verifiedEmails.some((e) => isAdminEmail(e, env.ADMIN_EMAILS)),
       firstName: user.firstName,
       publicMetadata: (user.publicMetadata || {}) as Record<string, unknown>,
       privateMetadata: (user.privateMetadata || {}) as Record<string, unknown>,
@@ -343,6 +346,23 @@ async function grantSubscription(
   return updateMeta(env, userId, (meta) =>
     mergeStripeSubscription(meta, sub, subscriptionPlan(env, sub), customerId),
   );
+}
+
+/** Stripe Billing Portal session on the Madd-Flight configuration (cancel at
+ * period end, no proration, no plan switching). Always passes the config
+ * explicitly so the shared account's default portal is never used. */
+async function handleBillingPortal(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  if (isResponse(user)) return user;
+  const meta = readMeta(user);
+  if (!meta.stripeCustomerId) return json({ error: "No Madd-Flight Pro billing account yet." }, 404);
+  if (!env.STRIPE_PORTAL_CONFIG) return json({ error: "Billing portal is not configured." }, 503);
+  const session = (await stripe(env, "POST", "/v1/billing_portal/sessions", {
+    customer: meta.stripeCustomerId,
+    configuration: env.STRIPE_PORTAL_CONFIG,
+    return_url: `${SITE}/?billing=return`,
+  })) as { url?: string };
+  return json({ url: session.url });
 }
 
 /** Cancel at the end of the paid period (or undo that). Never cancels
@@ -681,6 +701,7 @@ export default {
       if (method === "GET" && path === "/api/checkout/verify") return await handleVerify(request, env);
       if (method === "POST" && path === "/api/restore") return await handleRestore(request, env);
       if (method === "POST" && path === "/api/codes/redeem") return await handleRedeem(request, env);
+      if (method === "POST" && path === "/api/billing/portal") return await handleBillingPortal(request, env);
       if (method === "POST" && path === "/api/subscription/cancel")
         return await handleSubscriptionChange(request, env, true);
       if (method === "POST" && path === "/api/subscription/resume")

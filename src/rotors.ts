@@ -9,9 +9,14 @@ import { rotorParams } from "./flight-model";
 type Part = {
   node: string;
   axis: C.Cartesian3;
-  /** Revolutions per second at 100% RPM (visual). */
+  /** Apparent revolutions per second at 100% RPM. Deliberately below the
+   * real rate: a 2-blade prop at its true ~40 rps advances 240°/frame at
+   * 60 fps, which aliases into a frozen or backwards-stepping prop. These
+   * rates stay under ~60°/frame so the eye reads continuous spin. */
   rps: number;
   dir: 1 | -1;
+  /** Keep the part visible at any RPM (no blur-disc swap). */
+  solid?: boolean;
 };
 
 const Y = C.Cartesian3.UNIT_Y,
@@ -21,9 +26,10 @@ const Y = C.Cartesian3.UNIT_Y,
 export const ROTOR_PARTS: Record<string, Part[]> = {
   bell206: [
     { node: "mf_main_rotor", axis: Y, rps: 6.6, dir: -1 },
-    { node: "mf_tail_rotor", axis: Z, rps: 30, dir: 1 },
+    { node: "mf_tail_rotor", axis: Z, rps: 9, dir: 1 },
   ],
-  c172: [{ node: "mf_prop", axis: X, rps: 40, dir: 1 }],
+  c172: [{ node: "mf_prop", axis: X, rps: 8, dir: 1 }],
+  saucer: [{ node: "mf_saucer_ring", axis: Y, rps: 0.6, dir: 1, solid: true }],
 };
 
 /** Engine / rotor RPM as a fraction of maximum.
@@ -36,12 +42,36 @@ export function targetRpm(aircraft: Aircraft, f: Flight): number {
   return 0.22 + 0.78 * f.throttle;
 }
 
-/** Blades fade into a translucent disc as RPM rises (scale fade), so
- * high-RPM spin reads as motion blur instead of strobing. */
+/** A translucent blur disc fades in as RPM rises. Blades stay visible and
+ * keep turning so the spin is always readable (earlier builds hid the blades
+ * above ~80% RPM, which on the live site looked like "the prop isn't
+ * spinning"). */
 export function bladeAndDiscScale(rpm: number) {
   const disc = C.Math.clamp((rpm - 0.35) / 0.25, 0, 1);
-  const blades = 1 - C.Math.clamp((rpm - 0.62) / 0.2, 0, 1);
-  return { disc, blades };
+  return { disc, blades: 1 };
+}
+
+type ModelLike = { ready?: boolean; getNode?: (n: string) => unknown; length?: number; get?: (i: number) => unknown; _resource?: { url?: string }; resource?: { url?: string }; show?: boolean };
+
+/** Find the loaded Cesium Model for `uri` and report which spin nodes it has. */
+export function matchRotorNodes(scene: C.Scene, aircraft: Aircraft): { found: string[]; missing: string[] } | null {
+  const want = (ROTOR_PARTS[aircraft.id] ?? []).flatMap((p) => [p.node, p.node + "_disc"]);
+  const visit = (prim: ModelLike, depth: number): { found: string[]; missing: string[] } | null => {
+    if (!prim || depth > 6) return null;
+    if (typeof prim.getNode === "function") {
+      const url = prim.resource?.url ?? prim._resource?.url ?? "";
+      if (!prim.ready || !url.includes(aircraft.uri)) return null;
+      const found = want.filter((n) => prim.getNode!(n));
+      return { found, missing: want.filter((n) => !found.includes(n)) };
+    }
+    if (typeof prim.get === "function" && typeof prim.length === "number")
+      for (let i = 0; i < prim.length; i++) {
+        const r = visit(prim.get(i) as ModelLike, depth + 1);
+        if (r) return r;
+      }
+    return null;
+  };
+  return visit(scene.primitives as unknown as ModelLike, 0);
 }
 
 export class RotorAnimator {
@@ -49,6 +79,20 @@ export class RotorAnimator {
   private angles = new Map<string, number>();
   private trs = new Map<string, C.TranslationRotationScale>();
   private aircraftId = "";
+  /** Node-match report for the loaded model (logged once per aircraft). */
+  matched: { aircraft: string; found: string[]; missing: string[] } | null = null;
+
+  /** Call each frame; logs once which spin nodes the loaded model exposes. */
+  check(scene: C.Scene, aircraft: Aircraft) {
+    if (this.matched?.aircraft === aircraft.id) return;
+    const r = matchRotorNodes(scene, aircraft);
+    if (!r) return;
+    this.matched = { aircraft: aircraft.id, ...r };
+    console.info(
+      `[rotors] ${aircraft.id}: spin nodes found [${r.found.join(", ") || "none"}]` +
+        (r.missing.length ? ` missing [${r.missing.join(", ")}]` : ""),
+    );
+  }
 
   /** Frame-rate independent: RPM spools with a time constant, angle
    * advances by rpm * rps * dt. Call once per rendered frame. */
@@ -69,7 +113,7 @@ export class RotorAnimator {
         (Math.PI * 2);
       this.angles.set(part.node, a);
       const spin = C.Quaternion.fromAxisAngle(part.axis, a);
-      this.set(part.node, spin, Math.max(blades, 0.001));
+      this.set(part.node, spin, part.solid ? 1 : Math.max(blades, 0.001));
       // The disc node is authored at scale 0.001 (hidden in static viewers).
       this.set(part.node + "_disc", spin, Math.max(disc, 0.001) * 1000);
     }

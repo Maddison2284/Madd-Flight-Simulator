@@ -29,6 +29,7 @@ export function BillingPanel({
   onClose,
   onCancel,
   onResume,
+  onPortal,
   busy,
   error,
   message,
@@ -37,6 +38,7 @@ export function BillingPanel({
   onClose: () => void;
   onCancel: () => void;
   onResume: () => void;
+  onPortal: () => void;
   busy: boolean;
   error: string;
   message: string;
@@ -97,6 +99,13 @@ export function BillingPanel({
                 Cancel subscription
               </button>
             )}
+          </div>
+        )}
+        {state?.hasSubscription && (
+          <div className="billing-actions">
+            <button type="button" disabled={busy} onClick={onPortal}>
+              Manage subscription (Stripe) ↗
+            </button>
           </div>
         )}
         {message && <p className="billing-message" role="status">{message}</p>}
