@@ -29,3 +29,14 @@ export function tileBudget(mobile: boolean): TileBudget {
 export function warpScreenSpaceError(base: number, warp: number): number {
   return warp > 0 ? Math.round(base * (1.5 + warp * 0.75)) : base;
 }
+/** Google 3D detail while flying: full detail (base SSE) up to ~135 kt so
+ * slow flight and the ground look exactly as before; above that the error
+ * budget relaxes linearly to 2× base at ~450 kt, because fast flight streams
+ * a fresh full-detail city every few seconds (that's the in-flight loading
+ * stutter). Quantised so the tileset is not re-tuned every frame. Warp keeps
+ * its own, coarser curve. */
+export function flightScreenSpaceError(base: number, speedMs: number, warp: number): number {
+  if (warp > 0) return warpScreenSpaceError(base, warp);
+  const t = Math.min(1, Math.max(0, (speedMs - 70) / 160));
+  return Math.round(base * (1 + t) / 2) * 2 || base;
+}

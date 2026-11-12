@@ -19,7 +19,7 @@ import {
 } from "./camera";
 import { keyboardControls } from "./controls";
 import { WarpStreaks } from "./WarpStreaks";
-import { isMobileDevice, tileBudget, warpScreenSpaceError } from "./device";
+import { flightScreenSpaceError, isMobileDevice, tileBudget } from "./device";
 import { CrashScreen, ErrorBoundary, recordError } from "./crash";
 const MOBILE = isMobileDevice();
 const TILE_BUDGET = tileBudget(MOBILE);
@@ -105,6 +105,13 @@ const rotors = new RotorAnimator();
  *   the instrument panel sits right above them;
  * - --fa-b / --pa-b / --ph-b: bottoms of the phone button rows and compact
  *   HUD, so each phone row stacks under the one above whatever it wraps to. */
+/** Per-frame attribute writes on <main> only when the value changes: every
+ * write invalidates style for the whole app (lots of main[data-…] rules). */
+function setMainAttr(v: C.Viewer, name: string, value: string) {
+  const main = v.container.closest("main");
+  if (main && main.getAttribute(name) !== value) main.setAttribute(name, value);
+}
+
 function layoutFlightHud(root: HTMLElement) {
   const main = document.querySelector("main");
   if (!main) return;
@@ -639,9 +646,15 @@ function App() {
       refineTimer = window.setTimeout(() => refineJump(to), 450);
     };
     let refineTimer = 0;
+    // Ground height from the Google tiles already loaded, on the CPU
+    // (ray vs. the selected tiles' triangles). scene.sampleHeight /
+    // sampleHeightMostDetailed render an offscreen pick pass and block on
+    // readPixels — measured 6–8 s main-thread stalls per call in the
+    // software-GL profile, the in-flight "loading" hitches.
     const syncTileHeight = (cart: C.Cartographic): (C.Cartographic | undefined)[] => {
       try {
-        const h = v.scene.sampleHeight(cart, heightExclude.current);
+        const t3d = tiles.current;
+        const h = t3d ? t3d.getHeight(cart, v.scene) : undefined;
         return Number.isFinite(h) ? [C.Cartographic.fromRadians(cart.longitude, cart.latitude, h)] : [];
       } catch {
         return [];
@@ -919,17 +932,14 @@ function App() {
         const terrain = v.terrainProvider.availability
           ? C.sampleTerrainMostDetailed(v.terrainProvider, [cart])
           : Promise.resolve([cart]);
-        // At warp, read heights from tiles already loaded (sampleHeight)
-        // instead of sampleHeightMostDetailed, which forces the highest-detail
-        // tiles at every new point (a new city every 0.6 s at Mach 10).
+        // Read heights from the tiles already loaded (CPU, syncTileHeight)
+        // instead of sampleHeightMostDetailed: that forces max-detail tiles
+        // under the aircraft and an offscreen pick render + readPixels stall
+        // every 2 s. Loaded tiles under a low aircraft are already the
+        // detailed ones; launch / jump still refine with MostDetailed once.
         const tileHeight =
-          tiles.current && v.scene.sampleHeightSupported
-            ? warping
-              ? Promise.resolve(syncTileHeight(cart))
-              : v.scene.sampleHeightMostDetailed(
-                  [cart],
-                  heightExclude.current,
-                )
+          tiles.current
+            ? Promise.resolve(syncTileHeight(cart))
             : Promise.resolve([] as (C.Cartographic | undefined)[]);
         Promise.all([terrain, tileHeight])
           .then(([points, tilePoints]) => {
@@ -1106,7 +1116,8 @@ function App() {
           aircraftRef.current.radiusMeters,
           orbit.current,
         );
-        v.container.closest("main")?.setAttribute(
+        setMainAttr(
+          v,
           "data-camera-orbit",
           `${orbit.current.yaw.toFixed(3)},${orbit.current.pitch.toFixed(3)}`,
         );
@@ -1120,10 +1131,7 @@ function App() {
         cameraZoom.current +=
           (cameraZoomTarget.current - cameraZoom.current) * zoomAlpha;
         const view = applyCameraZoom(previousCamera, cameraZoom.current);
-        v.container.closest("main")?.setAttribute(
-          "data-camera-zoom",
-          cameraZoom.current.toFixed(3),
-        );
+        setMainAttr(v, "data-camera-zoom", cameraZoom.current.toFixed(3));
         v.camera.setView({
           destination: view.destination,
           orientation: {
@@ -1171,7 +1179,11 @@ function App() {
       const t3d = tiles.current;
       if (t3d) {
         const w = flight.current.warp ?? 0;
-        const sse = warpScreenSpaceError(TILE_BUDGET.maximumScreenSpaceError, w);
+        const sse = flightScreenSpaceError(
+          TILE_BUDGET.maximumScreenSpaceError,
+          active.current ? flightSpeed3d(flight.current) : 0,
+          w,
+        );
         if (t3d.maximumScreenSpaceError !== sse) t3d.maximumScreenSpaceError = sse;
       }
       const machNow = machNumber(flight.current);
@@ -1471,6 +1483,14 @@ function App() {
           dynamicScreenSpaceError: true,
           preloadFlightDestinations: false,
           loadSiblings: false,
+          // The Google helper turns this on: Cesium then ray-picks the tiles
+          // under the camera every frame the camera moves (GPU vertex-buffer
+          // readback). The sim places its own camera, so it is pure cost.
+          enableCollision: false,
+          // Defaults, stated: coarser detail in the screen edges and no new
+          // requests for tiles the camera is about to leave.
+          foveatedScreenSpaceError: true,
+          cullRequestsWhileMoving: true,
         },
       );
       if (v.isDestroyed()) {
