@@ -15,8 +15,25 @@ export type FlightAudioState = {
   afterburner?: boolean;
   /** 3-D speed in m/s, used for the sonic boom. */
   speedMs?: number;
-  warp?: 0 | 1 | 2;
+  warp?: 0 | 1 | 2 | 3;
 };
+
+/** One-time migration of audio prefs saved before the 2026-11-11 sound fix.
+ * Players who heard nothing (volume stuck at 0, iOS silent switch) often
+ * pressed the old "Sound" button, which actually MUTED them and saved it.
+ * Reset a saved mute or a saved 0 volume once so everyone starts audible. */
+export const AUDIO_PREFS_VERSION_KEY = "maddflight-audio-v";
+export const AUDIO_PREFS_VERSION = "2";
+export function migrateAudioPrefs(store: Pick<Storage, "getItem" | "setItem" | "removeItem">) {
+  if (store.getItem(AUDIO_PREFS_VERSION_KEY) === AUDIO_PREFS_VERSION) return;
+  if (store.getItem(MUTE_KEY) === "1") store.setItem(MUTE_KEY, "0");
+  const v = store.getItem(VOLUME_KEY);
+  if (v != null && !(Number(v) > 0.05)) store.removeItem(VOLUME_KEY);
+  store.setItem(AUDIO_PREFS_VERSION_KEY, AUDIO_PREFS_VERSION);
+}
+try {
+  migrateAudioPrefs(localStorage);
+} catch {}
 
 function readMuted(): boolean {
   try {
@@ -44,6 +61,25 @@ function readVolume(): number {
   } catch {
     return DEFAULT_VOLUME;
   }
+}
+
+/** Tiny silent mono WAV (0.25 s, 8 kHz, 8-bit) as a data URI. */
+let silentUri: string | null = null;
+function silentWavDataUri(): string {
+  if (silentUri) return silentUri;
+  const n = 2000;
+  const bytes = new Uint8Array(44 + n);
+  const dv = new DataView(bytes.buffer);
+  const str = (o: number, t: string) => { for (let i = 0; i < t.length; i++) bytes[o + i] = t.charCodeAt(i); };
+  str(0, "RIFF"); dv.setUint32(4, 36 + n, true); str(8, "WAVE"); str(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, 8000, true); dv.setUint32(28, 8000, true); dv.setUint16(32, 1, true);
+  dv.setUint16(34, 8, true); str(36, "data"); dv.setUint32(40, n, true);
+  bytes.fill(128, 44);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  silentUri = "data:audio/wav;base64," + btoa(bin);
+  return silentUri;
 }
 
 function noiseBuffer(ctx: AudioContext, seconds = 2): AudioBuffer {
@@ -78,11 +114,14 @@ export class FlightAudio {
   }
 
   setMuted(muted: boolean) {
+    const turnedOn = this.muted && !muted;
     this.muted = muted;
     try {
       localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
     } catch {}
     this.applyGain();
+    if (turnedOn) this.beep();
+    this.emit();
   }
 
   setVolume(volume: number) {
@@ -107,38 +146,184 @@ export class FlightAudio {
     return this.ctx?.state ?? "none";
   }
 
-  /** Install once: the first click/tap/key anywhere creates and resumes the
-   * AudioContext inside that user gesture (browsers block autoplay). */
-  installGestureUnlock() {
-    if (typeof window === "undefined") return;
-    const unlock = () => {
-      void this.start().then(() => {
-        if (this.started) {
-          window.removeEventListener("pointerdown", unlock, true);
-          window.removeEventListener("keydown", unlock, true);
-          window.removeEventListener("touchend", unlock, true);
-        }
-      });
-    };
-    window.addEventListener("pointerdown", unlock, true);
-    window.addEventListener("keydown", unlock, true);
-    window.addEventListener("touchend", unlock, true);
+  /** True when sound should be audible right now (context running, unmuted). */
+  get audible(): boolean {
+    return this.ctx?.state === "running" && !this.muted && this.volume > 0;
   }
 
-  /** Must be called from a user gesture (Start flight, unmute, etc.). */
-  async start() {
+  private listeners = new Set<() => void>();
+  /** Subscribe to state changes (context running/suspended, mute). */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+  private emit() {
+    for (const fn of this.listeners) fn();
+  }
+
+  private silentEl: HTMLAudioElement | null = null;
+  private analyser: AnalyserNode | null = null;
+  private beepedOnce = false;
+
+  /** Install once. Every click / tap / key re-runs unlock() SYNCHRONOUSLY
+   * inside the gesture (iOS ignores resume() from pointerdown, from after an
+   * await, or outside a gesture). Listeners stay installed so an iOS
+   * "interrupted" or suspended context (phone call, app switch, lock screen)
+   * comes back on the next tap. */
+  installGestureUnlock() {
+    if (typeof window === "undefined") return;
+    const onGesture = () => {
+      if (this.ctx?.state !== "running" || !this.silentPlaying()) this.unlock();
+    };
+    for (const type of ["touchend", "click", "pointerup", "keydown", "mousedown"])
+      window.addEventListener(type, onGesture, { capture: true, passive: true });
+    const tryResume = () => {
+      if (document.visibilityState === "visible" && this.ctx && this.ctx.state !== "running")
+        this.ctx.resume().catch(() => {}).finally(() => this.emit());
+    };
+    document.addEventListener("visibilitychange", tryResume);
+    window.addEventListener("pageshow", tryResume);
+    window.addEventListener("focus", tryResume);
+  }
+
+  private silentPlaying(): boolean {
+    return !this.isIOSLike() || (!!this.silentEl && !this.silentEl.paused);
+  }
+
+  private isIOSLike(): boolean {
+    if (typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent || "";
+    return /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+  }
+
+  /** iOS: route Web Audio through the media ("playback") session so the
+   * ring/silent switch does not mute it. */
+  private setPlaybackSession() {
+    try {
+      const nav = navigator as Navigator & { audioSession?: { type: string } };
+      if (nav.audioSession && nav.audioSession.type !== "playback") nav.audioSession.type = "playback";
+    } catch {}
+    // Older iOS (no audioSession API): a playing HTML <audio> element switches
+    // the page to the playback category, which also un-mutes Web Audio.
+    if (!this.isIOSLike()) return;
+    try {
+      if (!this.silentEl) {
+        const el = document.createElement("audio");
+        el.src = silentWavDataUri();
+        el.loop = true;
+        el.setAttribute("playsinline", "");
+        el.setAttribute("webkit-playsinline", "");
+        el.preload = "auto";
+        el.volume = 0.01;
+        this.silentEl = el;
+      }
+      if (this.silentEl.paused) void this.silentEl.play().catch(() => {});
+    } catch {}
+  }
+
+  /** Call synchronously from a user gesture handler (no await before it). */
+  unlock() {
+    if (typeof window === "undefined") return;
     const AC =
       window.AudioContext ||
       (window as Window & { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
     if (!AC) return;
-    if (!this.ctx) this.ctx = new AC();
-    if (this.ctx.state === "suspended") await this.ctx.resume().catch(() => {});
-    if (this.started || this.ctx.state !== "running") return;
+    this.setPlaybackSession();
+    if (!this.ctx) {
+      try {
+        this.ctx = new AC({ latencyHint: "interactive" });
+      } catch {
+        this.ctx = new AC();
+      }
+      this.ctx.onstatechange = () => {
+        if (this.ctx?.state === "running") this.applyGain();
+        this.emit();
+      };
+    }
+    const ctx = this.ctx;
+    const wasRunning = ctx.state === "running";
+    if (ctx.state !== "running" && ctx.state !== "closed") {
+      // Old-iOS trick: start a 1-sample buffer inside the gesture.
+      try {
+        const b = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = b;
+        src.connect(ctx.destination);
+        src.start(0);
+      } catch {}
+      ctx
+        .resume()
+        .then(() => {
+          if (!wasRunning && (ctx.state as string) === "running" && !this.beepedOnce && !this.muted) {
+            this.beepedOnce = true;
+            this.beep();
+          }
+        })
+        .catch(() => {})
+        .finally(() => this.emit());
+    }
+    this.buildGraph();
+    this.emit();
+  }
+
+  /** Back-compat: unlocks synchronously, then resolves. */
+  async start() {
+    this.unlock();
+  }
+
+  /** Short confirmation chirp when sound turns on. */
+  beep() {
+    if (!this.ctx || !this.master || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + 0.01;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(660, t);
+    osc.frequency.setValueAtTime(990, t + 0.07);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    osc.connect(g);
+    g.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.18);
+  }
+
+  /** Diagnostics for tests: context state, master gain, and the RMS level the
+   * analyser on the master bus currently reads. */
+  debug() {
+    let rms = 0;
+    if (this.analyser) {
+      const buf = new Float32Array(this.analyser.fftSize);
+      this.analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      rms = Math.sqrt(sum / buf.length);
+    }
+    return {
+      state: this.state,
+      started: this.started,
+      muted: this.muted,
+      volume: this.volume,
+      gain: this.master?.gain.value ?? 0,
+      rms,
+      session: (navigator as Navigator & { audioSession?: { type: string } }).audioSession?.type ?? null,
+      silentEl: this.silentEl ? !this.silentEl.paused : null,
+    };
+  }
+
+  private buildGraph() {
+    if (this.started || !this.ctx) return;
     const ctx = this.ctx;
     const master = ctx.createGain();
     master.gain.value = this.muted ? 0 : this.volume;
-    master.connect(ctx.destination);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    master.connect(analyser);
+    analyser.connect(ctx.destination);
+    this.analyser = analyser;
 
     const engineGain = ctx.createGain();
     engineGain.gain.value = 0;
@@ -240,6 +425,41 @@ export class FlightAudio {
     gain.connect(this.master);
     src.start();
     src.stop(ctx.currentTime + duration);
+  }
+
+  /** Teleport whoosh/zap: a fast falling sweep plus a filtered noise swish. */
+  zap(big = false) {
+    if (!this.started || !this.ctx || !this.master || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const dur = big ? 0.42 : 0.26;
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(big ? 1800 : 1400, t);
+    osc.frequency.exponentialRampToValueAtTime(90, t + dur);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.28, t + 0.02);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(og);
+    og.connect(this.master);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(ctx, 0.5);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(4000, t);
+    bp.frequency.exponentialRampToValueAtTime(300, t + dur);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.5, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(bp);
+    bp.connect(ng);
+    ng.connect(this.master);
+    src.start(t);
+    src.stop(t + dur);
   }
 
   /** Low thump + noise burst when the saucer (or anything) crosses Mach 1. */

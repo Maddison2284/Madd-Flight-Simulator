@@ -2510,3 +2510,179 @@ footer a,
     display: none;
   }
 }
+
+/* Saucer teleport jump: ~220 ms white-out flash + streaks. */
+.teleport-fx {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 7;
+  background: radial-gradient(circle at 50% 52%, #ffffff 0 22%, #d9fbffcc 45%, #ffffff00 85%);
+  animation: teleport-flash 0.22s ease-out forwards;
+}
+.teleport-streaks {
+  position: absolute;
+  inset: 0;
+  background: repeating-conic-gradient(from 0deg at 50% 52%, #ffffff00 0deg 4deg, #e8fffbaa 4deg 5deg, #ffffff00 5deg 11deg);
+  -webkit-mask: radial-gradient(circle at 50% 52%, transparent 0 12%, #000 40%);
+  mask: radial-gradient(circle at 50% 52%, transparent 0 12%, #000 40%);
+  animation: teleport-streak 0.22s ease-out forwards;
+}
+@keyframes teleport-flash {
+  0% { opacity: 1; }
+  35% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+@keyframes teleport-streak {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+/* Shown while flying if the browser has not let audio start yet. */
+.tap-sound {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--chrome-top, 64px) + 12px);
+  transform: translateX(-50%);
+  z-index: 30;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid #ffe08a;
+  background: #11291ce6;
+  color: #ffe08a;
+  font-weight: 700;
+  animation: tap-pulse 1.4s ease-in-out infinite;
+}
+@keyframes tap-pulse {
+  50% { box-shadow: 0 0 0 8px #ffe08a33; }
+}
+.units-setting select {
+  width: 100%;
+}
+.warp-streaks[data-warp="3"] {
+  opacity: 0.75;
+  animation-duration: 0.08s;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 10px, #f0fffbaa 10px 12px, transparent 12px 26px);
+}
+
+/* Saucer / helicopter: big hold-to-climb / hold-to-descend buttons. */
+.vert-buttons {
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 10px 0 auto;
+}
+.vert-btn {
+  width: 78px;
+  min-height: 64px;
+  border-radius: 14px;
+  border: 2px solid #a4f4be;
+  background: #173a2ce6;
+  color: #eafff3;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  padding: 6px 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  box-shadow: 0 4px 12px #0007;
+}
+.vert-btn b {
+  font-size: 26px;
+}
+.vert-btn span {
+  font: 700 12px "DM Sans", sans-serif;
+  letter-spacing: 1px;
+}
+.vert-btn.vert-down {
+  border-color: #ffd27a;
+  background: #3a2e17e6;
+}
+.vert-btn:active {
+  filter: brightness(1.5);
+}
+.jump-btn,
+.desktop-jump {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+.desktop-boost.desktop-jump {
+  top: 222px;
+}
+.control-hint {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #ffffff10;
+}
+@media (max-width: 800px) {
+  .vert-btn {
+    width: 68px;
+    min-height: 56px;
+  }
+  .vert-btn b {
+    font-size: 22px;
+  }
+}
+@media (max-height: 550px) and (min-width: 600px) {
+  .vert-buttons {
+    flex-direction: row;
+  }
+  .vert-btn {
+    width: 70px;
+    min-height: 52px;
+  }
+}
+/* Desktop: keep the flight buttons (incl. Sound) clear of the centered
+ * heading strip; wrap to a second row instead of sliding underneath it. */
+@media (min-width: 801px) and (min-height: 551px) {
+  .flight-actions {
+    flex-wrap: wrap;
+    max-width: calc(50% - 38px - 185px);
+    z-index: 5;
+  }
+  .flight-hint {
+    bottom: calc(215px + env(safe-area-inset-bottom, 0px));
+  }
+}
+/* Portrait phones: the camera select + Map/Pause and the Warp/Jump/AP/Sound
+ * row no longer fit on one line (they overlapped), so use two rows. */
+@media (max-width: 600px) and (orientation: portrait) {
+  [data-touch="true"] .flight-actions {
+    right: auto;
+    max-width: none;
+  }
+  [data-touch="true"] .phone-actions {
+    top: calc(58px + env(safe-area-inset-top, 0px));
+    left: max(8px, env(safe-area-inset-left));
+    right: auto;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+  [data-touch="true"] .phone-hud {
+    top: calc(108px + env(safe-area-inset-top, 0px));
+  }
+  [data-touch="true"] .rotate-hint {
+    top: calc(178px + env(safe-area-inset-top, 0px));
+  }
+}
+[data-touch="true"] .flight-actions select {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #102632e8;
+  color: #ddf3ea;
+  border: 1px solid #ffffff35;
+  border-radius: 6px;
+}
+[data-touch="true"] .flight-hint {
+  display: none;
+}
+[data-camera="cockpit"] .flight-hint {
+  bottom: auto;
+  top: calc(190px + env(safe-area-inset-top, 0px));
+}

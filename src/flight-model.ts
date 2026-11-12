@@ -6,7 +6,7 @@ import {
   type NavInfo,
 } from "./autopilot";
 import type { Destination } from "./destinations";
-import { HELI, SAUCER, hoverTrimCollective, spawnHeli, stepHeli, stepSaucer, type RotorcraftParams } from "./heli";
+import { HELI, SAUCER, SAUCER_FWD_MS, hoverTrimCollective, spawnHeli, spawnSaucer, stepHeli, stepSaucer, type RotorcraftParams } from "./heli";
 import { clamp, spawn, step, type Controls, type Flight } from "./physics";
 
 /** Rotorcraft params for hover-capable aircraft, or null for fixed-wing. */
@@ -30,6 +30,7 @@ export function spawnAircraft(
 ): Flight {
   const rotor = rotorParams(aircraft);
   const f = spawn(lat, lon, alt, heading, speedMs, boost, aircraft.performance);
+  if (aircraft.engine === "saucer") return spawnSaucer(f, onGround);
   if (rotor) return spawnHeli(f, onGround);
   if (!onGround) return f;
   return { ...f, speed: 0, throttle: 0, pitch: 0, roll: 0, vs: 0, onGround: true };
@@ -70,6 +71,21 @@ export function aircraftAutopilot(
   const nav = navTo(f, dest, false);
   const arrived = nav.distanceMeters < 400;
   const next = { ...state, holding: arrived };
+  if (aircraft.engine === "saucer") {
+    const errS = ((nav.bearing - f.heading + 540) % 360) - 180;
+    const fwd = arrived ? 0 : Math.min(1, Math.max(0.05, nav.distanceMeters / 30 / SAUCER_FWD_MS)) * (Math.abs(errS) < 25 ? 1 : 0.3);
+    return {
+      controls: {
+        pitch: 0,
+        roll: 0,
+        yaw: arrived ? 0 : clamp(errS / 25, -1, 1),
+        throttle: clamp((fwd - f.throttle) * 8, -1, 1),
+        vertical: clamp((state.targetAlt - f.alt) * 0.02 - f.vs * 0.03, -1, 1),
+      },
+      state: next,
+      nav: { ...nav, holding: arrived },
+    };
+  }
   const rad = Math.PI / 180;
   const vFwd =
     (f.vn ?? 0) * Math.cos(f.heading * rad) + (f.ve ?? 0) * Math.sin(f.heading * rad);

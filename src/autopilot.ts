@@ -67,7 +67,9 @@ export function isManualInput(controls: Controls): boolean {
     Math.abs(controls.pitch) > MANUAL_DEADBAND ||
     Math.abs(controls.roll) > MANUAL_DEADBAND ||
     Math.abs(controls.yaw) > MANUAL_DEADBAND ||
-    Math.abs(controls.throttle) > MANUAL_DEADBAND
+    Math.abs(controls.throttle) > MANUAL_DEADBAND ||
+    Math.abs(controls.vertical ?? 0) > MANUAL_DEADBAND ||
+    Math.abs(controls.forward ?? 0) > MANUAL_DEADBAND
   );
 }
 

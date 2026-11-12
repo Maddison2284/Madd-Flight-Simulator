@@ -5,10 +5,16 @@ export function TouchControls({
   onAxes,
   throttle,
   onThrottle,
+  vertical,
+  onHoldKey,
 }: {
   onAxes: (axes: TouchAxes) => void;
   throttle: number;
   onThrottle: (value: number) => void;
+  /** Hover-capable craft get big hold-to-climb / hold-to-descend buttons. */
+  vertical?: "saucer" | "heli";
+  /** Press/release a keyboard key (r = up, f = down) while a button is held. */
+  onHoldKey?: (key: string, down: boolean) => void;
 }) {
   const axes = useRef<TouchAxes>({ pitch: 0, roll: 0, yaw: 0 });
   const pointer = useRef<number | null>(null),
@@ -69,9 +75,54 @@ export function TouchControls({
       ),
     });
   }
+  const held = useRef(new Map<number, string>());
+  const holdDown = (key: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+    held.current.set(e.pointerId, key);
+    onHoldKey?.(key, true);
+  };
+  const holdUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const key = held.current.get(e.pointerId);
+    if (!key) return;
+    held.current.delete(e.pointerId);
+    if (![...held.current.values()].includes(key)) onHoldKey?.(key, false);
+  };
+  useEffect(
+    () => () => {
+      for (const k of new Set(held.current.values())) onHoldKey?.(k, false);
+      held.current.clear();
+    },
+    [],
+  );
+  const vertButtons = vertical && (
+    <div className="vert-buttons" role="group" aria-label={vertical === "heli" ? "Collective" : "Vertical thrust"}>
+      {([
+        ["r", "▲", "UP", vertical === "heli" ? "Hold to climb (raise collective)" : "Hold to go up"],
+        ["f", "▼", "DOWN", vertical === "heli" ? "Hold to descend (lower collective)" : "Hold to go down"],
+      ] as const).map(([key, arrow, text, label]) => (
+        <button
+          key={key}
+          className={`vert-btn vert-${text.toLowerCase()}`}
+          aria-label={label}
+          onPointerDown={holdDown(key)}
+          onPointerUp={holdUp}
+          onPointerCancel={holdUp}
+          onLostPointerCapture={holdUp}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <b>{arrow}</b>
+          <span>{text}</span>
+        </button>
+      ))}
+    </div>
+  );
   return (
     <section
       className="touch-controls"
+      data-vertical={vertical ?? "none"}
       aria-label="Touch flight controls"
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => e.stopPropagation()}
@@ -86,7 +137,7 @@ export function TouchControls({
         <div
           className="touch-stick"
           role="group"
-          aria-label="Flight stick: drag down to climb, up to descend, left or right to roll"
+          aria-label={vertical === "saucer" ? "Flight stick: push up to go up, down to go down, left or right to bank and turn" : "Flight stick: drag down to climb, up to descend, left or right to roll"}
           onPointerDown={(e) => {
             if (pointer.current !== null) return;
             e.preventDefault();
@@ -107,11 +158,12 @@ export function TouchControls({
             }}
           />
         </div>
-        <small>DRAG TO FLY · DOWN = CLIMB</small>
+        <small>{vertical === "saucer" ? "STICK UP = UP · DOWN = DOWN" : "DRAG TO FLY · DOWN = CLIMB"}</small>
       </div>
+      {vertButtons}
       <div className="touch-power">
         <label htmlFor="touch-throttle">
-          THROTTLE <b>{Math.round(throttle * 100)}%</b>
+          {vertical === "heli" ? "COLLECTIVE" : vertical === "saucer" ? "FORWARD" : "THROTTLE"} <b>{Math.round(throttle * 100)}%</b>
         </label>
         <input
           id="touch-throttle"

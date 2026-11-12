@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Aircraft } from "./aircraft";
 import type { Flight } from "./physics";
+import { type UnitSystem, DEFAULT_UNITS, speedFromMs, altFromM, vsFromMs, fmtInt, fmtFixed, speedLabel, altLabel } from "./units";
 
 /** Original vector flight-deck artwork per aircraft type (no third-party
  * assets). Every instrument is driven live from the flight state. */
@@ -14,18 +15,40 @@ export function cockpitKind(aircraft: Pick<Aircraft, "id" | "engine">): CockpitK
   return "glass";
 }
 
-const KT = 1.943844;
-const FT = 3.28084;
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const pad3 = (n: number) => String(Math.round(norm(n)) % 360).padStart(3, "0");
+const fmtVsLive = (s: Live) => (s.u === "metric" ? fmtFixed(s.vsd, 1) : fmtInt(Math.round(s.vsd / 50) * 50));
+/** Speed dial spec: knot-based range/arcs converted to display units. */
+function speedDial(s: Live, maxKt: number) {
+  const major = s.u === "metric" ? 40 : 20;
+  const max = Math.ceil((maxKt * s.perKt) / major) * major;
+  return { max, major, minor: major / 2, labels: (v: number) => (v % (major * 2) === 0 && v ? String(v) : ""), unit: s.u === "imperial" ? "MPH" : s.u === "metric" ? "KM/H" : "KNOTS" };
+}
+const arc = (s: Live, from: number, to: number, color: string) => ({ from: from * s.perKt, to: to * s.perKt, color });
+/** VSI dial: ±2,000 ft/min (±20 ×100) or ±10 m/s mapped onto the same ±20 face. */
+const vsiValue = (s: Live) => clampN(s.u === "metric" ? s.vsd * 2 : s.vsd / 100, -20, 20);
+const vsiLabel = (s: Live) => (v: number) => (s.u === "metric" ? String(Math.abs(v) / 2) : String(Math.abs(v)));
+const vsiUnit = (s: Live) => (s.u === "metric" ? "M/S" : "100 FT/MIN");
 
-type Live = { kt: number; ft: number; fpm: number; hdg: number; pitch: number; roll: number; thr: number };
-function live(f: Flight): Live {
+/** Live values already in the chosen display units (spd, alt, vsd). */
+type Live = {
+  spd: number; alt: number; vsd: number; mach: number;
+  /** display units per knot (scales knot-based dial ranges). */
+  perKt: number;
+  u: UnitSystem; su: string; au: string;
+  hdg: number; pitch: number; roll: number; thr: number;
+};
+function live(f: Flight, u: UnitSystem): Live {
   return {
-    kt: f.speed * KT,
-    ft: f.alt * FT,
-    fpm: f.vs * FT * 60,
+    spd: speedFromMs(f.speed, u),
+    alt: altFromM(f.alt, u),
+    vsd: vsFromMs(f.vs, u),
+    mach: f.speed / 340.29,
+    perKt: speedFromMs(1852 / 3600, u),
+    u,
+    su: speedLabel(u),
+    au: altLabel(u),
     hdg: norm(f.heading),
     pitch: f.pitch,
     roll: f.roll,
@@ -210,10 +233,10 @@ function Pfd({ x, y, w, h, s, id }: { x: number; y: number; w: number; h: number
       <path d={`M${cx - 90} ${cy}h55v12M${cx + 90} ${cy}h-55v12`} stroke="#f3c33a" strokeWidth="6" fill="none" />
       <rect x={cx - 5} y={cy - 5} width="10" height="10" fill="#f3c33a" />
       <g transform={`rotate(${-s.roll} ${cx} ${cy})`}><path d={`M${cx} ${ay + 6}l-9 15h18z`} fill="#fff" /></g>
-      <Tape x={x + 8} y={ay} w={w * 0.15} h={ah} value={s.kt} step={10} label={20} fmt={(v) => String(Math.round(v))} />
-      <Tape x={x + w - w * 0.15 - 8} y={ay} w={w * 0.15} h={ah} value={s.ft} step={100} label={500} fmt={(v) => String(Math.round(v / 10) * 10)} right />
-      <text x={x + w - 10} y={ay + ah + 24} textAnchor="end" className="ck-mag">VS {Math.round(s.fpm / 50) * 50}</text>
-      <text x={x + 12} y={ay + ah + 24} className="ck-mag">GS {Math.round(s.kt)}</text>
+      <Tape x={x + 8} y={ay} w={w * 0.15} h={ah} value={s.spd} step={10} label={20} fmt={(v) => fmtInt(v)} />
+      <Tape x={x + w - w * 0.15 - 8} y={ay} w={w * 0.15} h={ah} value={s.alt} step={100} label={500} fmt={(v) => fmtInt(Math.round(v / 10) * 10)} right />
+      <text x={x + w - 10} y={ay + ah + 24} textAnchor="end" className="ck-mag">VS {fmtVsLive(s)}</text>
+      <text x={x + 12} y={ay + ah + 24} className="ck-mag">GS {fmtInt(s.spd)} {s.su}</text>
       <g>
         <rect x={cx - 50} y={y + h - 44} width="100" height="34" fill="#000" stroke="#fff" />
         <text x={cx} y={y + h - 19} textAnchor="middle" className="ck-box">{pad3(s.hdg)}°</text>
@@ -243,7 +266,7 @@ function Nd({ x, y, w, h, s, title }: { x: number; y: number; w: number; h: numb
       <path d={`M${cx} ${cy - 22}v40M${cx - 18} ${cy - 4}h36M${cx - 8} ${cy + 16}h16`} stroke="#f3c33a" strokeWidth="4" />
       <text x={x + 14} y={y + 28} className="ck-mag">{title}</text>
       <text x={x + w - 14} y={y + 28} textAnchor="end" className="ck-grn">HDG {pad3(s.hdg)}</text>
-      <text x={x + 14} y={y + h - 14} className="ck-grn">TAS {Math.round(s.kt)}</text>
+      <text x={x + 14} y={y + h - 14} className="ck-grn">TAS {fmtInt(s.spd)} {s.su}</text>
     </g>
   );
 }
@@ -323,17 +346,17 @@ function SixPack({ s }: { s: Live }) {
       <path d="M0 40Q800 -10 1600 40V560H0Z" fill="#23272b" stroke="#4b5257" strokeWidth="3" />
       <path d="M0 40Q800 -10 1600 40" stroke="#0b0d0f" strokeWidth="26" fill="none" />
       <Bezel cx={xs[0]} cy={y1} r={r} label="AIRSPEED">
-        <Dial cx={xs[0]} cy={y1} r={r} value={s.kt} min={0} max={200} a0={-160} a1={160} major={20} minor={10} labels={(v) => (v % 40 === 0 && v ? String(v) : "")} unit="KNOTS" arcs={[{ from: 48, to: 85, color: "#ddd" }, { from: 55, to: 129, color: "#2bb34a" }, { from: 129, to: 163, color: "#e6c229" }, { from: 163, to: 166, color: "#d33" }]} />
+        <Dial cx={xs[0]} cy={y1} r={r} value={s.spd} min={0} max={speedDial(s, 200).max} a0={-160} a1={160} major={speedDial(s, 200).major} minor={speedDial(s, 200).minor} labels={speedDial(s, 200).labels} unit={speedDial(s, 200).unit} arcs={[arc(s, 48, 85, "#ddd"), arc(s, 55, 129, "#2bb34a"), arc(s, 129, 163, "#e6c229"), arc(s, 163, 166, "#d33")]} />
       </Bezel>
       <Bezel cx={xs[1]} cy={y1} r={r} label="ATTITUDE"><AttitudeBall cx={xs[1]} cy={y1} r={r} pitch={s.pitch} roll={s.roll} id="ck-ai" /></Bezel>
       <Bezel cx={xs[2]} cy={y1} r={r} label="ALTITUDE">
-        <Dial cx={xs[2]} cy={y1} r={r} value={s.ft % 1000} min={0} max={1000} a0={0} a1={360} major={100} minor={20} labels={(v) => (v < 1000 ? String(v / 100) : "")} digital={`${Math.round(s.ft).toLocaleString()} FT`} />
-        <g transform={`rotate(${((s.ft % 10000) / 10000) * 360} ${xs[2]} ${y1})`}><path d={`M${xs[2] - 5} ${y1}L${xs[2]} ${y1 - r * 0.5}L${xs[2] + 5} ${y1}Z`} fill="#fff" /></g>
+        <Dial cx={xs[2]} cy={y1} r={r} value={s.alt % 1000} min={0} max={1000} a0={0} a1={360} major={100} minor={20} labels={(v) => (v < 1000 ? String(v / 100) : "")} digital={`${fmtInt(s.alt)} ${s.au}`} />
+        <g transform={`rotate(${((s.alt % 10000) / 10000) * 360} ${xs[2]} ${y1})`}><path d={`M${xs[2] - 5} ${y1}L${xs[2]} ${y1 - r * 0.5}L${xs[2] + 5} ${y1}Z`} fill="#fff" /></g>
       </Bezel>
       <Bezel cx={xs[0]} cy={y2} r={r} label="TURN"><TurnCoordinator cx={xs[0]} cy={y2} r={r} roll={s.roll} /></Bezel>
       <Bezel cx={xs[1]} cy={y2} r={r} label="HEADING"><HeadingCard cx={xs[1]} cy={y2} r={r} hdg={s.hdg} /></Bezel>
       <Bezel cx={xs[2]} cy={y2} r={r} label="VERT SPEED">
-        <Dial cx={xs[2]} cy={y2} r={r} value={clampN(s.fpm / 100, -20, 20)} min={-20} max={20} a0={-260} a1={80} major={5} minor={1} labels={(v) => String(Math.abs(v))} unit="100 FT/MIN" />
+        <Dial cx={xs[2]} cy={y2} r={r} value={vsiValue(s)} min={-20} max={20} a0={-260} a1={80} major={5} minor={1} labels={vsiLabel(s)} unit={vsiUnit(s)} />
       </Bezel>
       {/* Engine cluster, radio stack, throttle. */}
       <Bezel cx={260} cy={y1} r={58} label="TACH"><Dial cx={260} cy={y1} r={58} value={600 + s.thr * 2100} min={0} max={3500} a0={-135} a1={135} major={500} arcs={[{ from: 2100, to: 2700, color: "#2bb34a" }, { from: 2700, to: 2750, color: "#d33" }]} labels={(v) => (v % 1000 === 0 ? String(v / 100) : "")} unit="RPM ×100" /></Bezel>
@@ -355,7 +378,7 @@ function GlassDeck({ s, airbus, title }: { s: Live; airbus: boolean; title: stri
     <g>
       <path d="M0 30Q800 -10 1600 30V560H0Z" fill="#2a3036" stroke="#50585f" strokeWidth="3" />
       <path d="M260 30Q800 0 1340 30L1320 70H280Z" fill="#14181b" />
-      <text x="800" y="58" textAnchor="middle" className="ck-cap">{airbus ? "FCU   SPD ---   HDG " + pad3(s.hdg) + "   ALT " + Math.round(s.ft / 100) * 100 + "   V/S " + Math.round(s.fpm / 100) * 100 : "AFCS   HDG " + pad3(s.hdg) + "   ALT " + Math.round(s.ft / 100) * 100}</text>
+      <text x="800" y="58" textAnchor="middle" className="ck-cap">{airbus ? "FCU   SPD ---   HDG " + pad3(s.hdg) + "   ALT " + fmtInt(Math.round(s.alt / 100) * 100) + "   V/S " + (s.u === "metric" ? fmtFixed(s.vsd, 1) : fmtInt(Math.round(s.vsd / 100) * 100)) : "AFCS   HDG " + pad3(s.hdg) + "   ALT " + fmtInt(Math.round(s.alt / 100) * 100)}</text>
       <Pfd x={110} y={90} w={420} h={390} s={s} id="ck-pfd1" />
       <Nd x={560} y={90} w={360} h={390} s={s} title={airbus ? "ND  ARC" : "MFD  MAP"} />
       <Engine x={950} y={90} w={300} h={390} s={s} title={airbus ? "E/WD" : "EICAS"} />
@@ -385,13 +408,13 @@ function HeliPanel({ s }: { s: Live }) {
       {/* Hooded centre console, like a Bell 206 JetRanger. */}
       <path d="M430 60Q800 10 1170 60L1130 560H470Z" fill="#202427" stroke="#4b5257" strokeWidth="3" />
       <path d="M430 60Q800 10 1170 60" stroke="#0a0c0e" strokeWidth="22" fill="none" />
-      <Bezel cx={560} cy={150} r={r} label="AIRSPEED"><Dial cx={560} cy={150} r={r} value={s.kt} min={0} max={150} a0={-160} a1={160} major={20} labels={(v) => (v % 40 === 0 && v ? String(v) : "")} unit="KNOTS" arcs={[{ from: 0, to: 130, color: "#2bb34a" }, { from: 130, to: 133, color: "#d33" }]} /></Bezel>
+      <Bezel cx={560} cy={150} r={r} label="AIRSPEED"><Dial cx={560} cy={150} r={r} value={s.spd} min={0} max={speedDial(s, 150).max} a0={-160} a1={160} major={speedDial(s, 150).major} labels={speedDial(s, 150).labels} unit={speedDial(s, 150).unit} arcs={[arc(s, 0, 130, "#2bb34a"), arc(s, 130, 133, "#d33")]} /></Bezel>
       <Bezel cx={720} cy={150} r={r} label="ATTITUDE"><AttitudeBall cx={720} cy={150} r={r} pitch={s.pitch} roll={s.roll} id="ck-hai" /></Bezel>
-      <Bezel cx={880} cy={150} r={r} label="ALTITUDE"><Dial cx={880} cy={150} r={r} value={s.ft % 1000} min={0} max={1000} a0={0} a1={360} major={100} labels={(v) => (v < 1000 ? String(v / 100) : "")} digital={`${Math.round(s.ft).toLocaleString()}`} /></Bezel>
+      <Bezel cx={880} cy={150} r={r} label="ALTITUDE"><Dial cx={880} cy={150} r={r} value={s.alt % 1000} min={0} max={1000} a0={0} a1={360} major={100} labels={(v) => (v < 1000 ? String(v / 100) : "")} digital={`${fmtInt(s.alt)} ${s.au}`} /></Bezel>
       <Bezel cx={1040} cy={150} r={r} label="ROTOR / ENG RPM"><Dial cx={1040} cy={150} r={r} value={95 + s.thr * 5} min={0} max={110} a0={-140} a1={140} major={20} arcs={[{ from: 95, to: 100, color: "#2bb34a" }, { from: 100, to: 110, color: "#d33" }]} unit="% RPM" /></Bezel>
       <Bezel cx={640} cy={330} r={r} label="TORQUE"><Dial cx={640} cy={330} r={r} value={20 + s.thr * 80} min={0} max={120} a0={-140} a1={140} major={20} arcs={[{ from: 0, to: 85, color: "#2bb34a" }, { from: 85, to: 100, color: "#e6c229" }, { from: 100, to: 120, color: "#d33" }]} unit="% TQ" /></Bezel>
       <Bezel cx={800} cy={330} r={r} label="HEADING"><HeadingCard cx={800} cy={330} r={r} hdg={s.hdg} /></Bezel>
-      <Bezel cx={960} cy={330} r={r} label="VERT SPEED"><Dial cx={960} cy={330} r={r} value={clampN(s.fpm / 100, -20, 20)} min={-20} max={20} a0={-260} a1={80} major={5} labels={(v) => (v % 10 === 0 ? String(Math.abs(v)) : "")} unit="100 FT/MIN" /></Bezel>
+      <Bezel cx={960} cy={330} r={r} label="VERT SPEED"><Dial cx={960} cy={330} r={r} value={vsiValue(s)} min={-20} max={20} a0={-260} a1={80} major={5} labels={(v) => (v % 10 === 0 ? vsiLabel(s)(v) : "")} unit={vsiUnit(s)} /></Bezel>
       {/* Cyclic between the knees, collective on the left. */}
       <g transform={`rotate(${clampN(s.roll, -30, 30) * 0.5} 800 900) rotate(${clampN(-s.pitch, -20, 20) * 0.3} 800 900)`}>
         <path d="M800 900V610" stroke="#1a1e22" strokeWidth="22" strokeLinecap="round" />
@@ -442,13 +465,13 @@ function Hud({ s }: { s: Live }) {
         {hdgTicks}
         <path d={`M${cx} 140l-7 12h14z`} fill="#6dff8a" />
         <rect x="560" y={cy - 22} width="96" height="44" />
-        <text x="608" y={cy + 10} textAnchor="middle" className="ck-hudb">{Math.round(s.kt)}</text>
-        <text x="608" y={cy - 32} textAnchor="middle" className="ck-hudt">KTS</text>
+        <text x="608" y={cy + 10} textAnchor="middle" className="ck-hudb">{fmtInt(s.spd)}</text>
+        <text x="608" y={cy - 32} textAnchor="middle" className="ck-hudt">{s.su}</text>
         <rect x="940" y={cy - 22} width="110" height="44" />
-        <text x="995" y={cy + 10} textAnchor="middle" className="ck-hudb">{Math.round(s.ft / 10) * 10}</text>
-        <text x="995" y={cy - 32} textAnchor="middle" className="ck-hudt">ALT</text>
-        <text x="560" y="660" className="ck-hudt">M {(s.kt / 661).toFixed(2)}   G {(1 / Math.max(0.3, Math.cos((s.roll * Math.PI) / 180))).toFixed(1)}</text>
-        <text x="1050" y="660" textAnchor="end" className="ck-hudt">VS {Math.round(s.fpm)}</text>
+        <text x="995" y={cy + 10} textAnchor="middle" className="ck-hudb">{fmtInt(Math.round(s.alt / 10) * 10)}</text>
+        <text x="995" y={cy - 32} textAnchor="middle" className="ck-hudt">ALT {s.au}</text>
+        <text x="560" y="660" className="ck-hudt">M {s.mach.toFixed(2)}   G {(1 / Math.max(0.3, Math.cos((s.roll * Math.PI) / 180))).toFixed(1)}</text>
+        <text x="1050" y="660" textAnchor="end" className="ck-hudt">VS {fmtVsLive(s)}</text>
         <text x="800" y="690" textAnchor="middle" className="ck-hudt">THR {Math.round(s.thr * 100)}%</text>
       </g>
     </svg>
@@ -465,8 +488,8 @@ function FighterPanel({ s }: { s: Live }) {
       <Nd x={1010} y={170} w={360} h={330} s={s} title="TSD" />
       <rect x="640" y="170" width="320" height="200" rx="6" fill="#0b0d0f" stroke="#3d454b" />
       <text x="800" y="230" textAnchor="middle" className="ck-grn">UFC</text>
-      <text x="800" y="275" textAnchor="middle" className="ck-grn">HDG {pad3(s.hdg)}  ALT {Math.round(s.ft)}</text>
-      <text x="800" y="320" textAnchor="middle" className="ck-grn">MACH {(s.kt / 661).toFixed(2)}</text>
+      <text x="800" y="275" textAnchor="middle" className="ck-grn">HDG {pad3(s.hdg)}  ALT {fmtInt(s.alt)} {s.au}</text>
+      <text x="800" y="320" textAnchor="middle" className="ck-grn">MACH {s.mach.toFixed(2)}</text>
       <g transform={`rotate(${clampN(s.roll, -30, 30) * 0.4} 800 900)`}>
         <path d="M800 900V560" stroke="#202529" strokeWidth="30" strokeLinecap="round" />
         <rect x="772" y="510" width="56" height="90" rx="18" fill="#2c3338" />
@@ -475,9 +498,9 @@ function FighterPanel({ s }: { s: Live }) {
   );
 }
 
-export function Cockpit({ flight, aircraft }: { flight: Flight; aircraft: Pick<Aircraft, "id" | "engine" | "name"> }) {
+export function Cockpit({ flight, aircraft, units = DEFAULT_UNITS }: { flight: Flight; aircraft: Pick<Aircraft, "id" | "engine" | "name">; units?: UnitSystem }) {
   const kind = cockpitKind(aircraft);
-  const s = live(flight);
+  const s = live(flight, units);
   return (
     <div className="cockpit-art" data-cockpit={kind} aria-label={`${aircraft.name} cockpit`}>
       <FrameSvg kind={kind} />

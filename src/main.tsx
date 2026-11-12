@@ -28,7 +28,27 @@ import {
   spawnAircraft,
   stepAircraft,
 } from "./flight-model";
-import { hoverTrimCollective, HOVER_COLLECTIVE, cycleWarp, machNumber, flightSpeed3d } from "./heli";
+import { hoverTrimCollective, HOVER_COLLECTIVE, machNumber, flightSpeed3d, teleportJump, saucerJumpPitch, cycleWarp, WARP_MACH, JUMP_M, BIG_JUMP_M, JUMP_COOLDOWN_MS, JUMP_GROUND_MARGIN_M } from "./heli";
+import {
+  type UnitSystem,
+  UNIT_SYSTEMS,
+  readUnits,
+  saveUnits,
+  speedFromMs,
+  speedFromKt,
+  speedToKt,
+  altFromM,
+  altFromFt,
+  altToFt,
+  fmtInt,
+  fmtVs,
+  speedLabel,
+  speedUnit,
+  altLabel,
+  altUnit,
+  vsLabel,
+  formatDistanceUnits,
+} from "./units";
 import { ROTOR_PARTS, RotorAnimator } from "./rotors";
 import { MAX_START_ALT_FT, altToSlider, sliderToAlt, startAltFt } from "./altitude";
 import { TouchControls, type TouchAxes } from "./TouchControls";
@@ -44,7 +64,6 @@ import { flightAudio } from "./audio";
 import {
   disengageAutopilot,
   engageAutopilot,
-  formatDistance,
   formatEta,
   greatCirclePositions,
   isManualInput,
@@ -76,6 +95,15 @@ const rotors = new RotorAnimator();
 const angleDelta = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 flightAudio.installGestureUnlock();
 (window as unknown as { __mfAudio?: () => string }).__mfAudio = () => flightAudio.state;
+(window as unknown as { __mfAudioDebug?: () => unknown }).__mfAudioDebug = () => flightAudio.debug();
+/** One-line key summary per aircraft, shown at flight start and in Help. */
+function controlHint(a: { engine: string; id: string }): string {
+  if (a.engine === "saucer")
+    return "W / R / Space = Up · S / F = Down · A/D bank & turn · ↑↓ or +/− forward · B = Warp (Mach 1.2 / 4 / 10 / off) · J = Jump 1 mi (Shift+J = 10 mi)";
+  if (a.engine === "rotor")
+    return "R / + = Up (collective) · F / − = Down · H = hover · W/A/S/D cyclic · Q/E pedals";
+  return "+ / − throttle · W/S or ↑↓ pitch · A/D or ←→ roll · Q/E rudder · B boost";
+}
 const clerkPublishableKey = (
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || ""
 ).trim();
@@ -161,7 +189,10 @@ function App() {
       targetSpeed: 0,
     }),
     aircraftRef = useRef(aircraftById(readAircraftId())),
-    navRef = useRef<NavInfo | null>(null);
+    navRef = useRef<NavInfo | null>(null),
+    snapCamera = useRef(false),
+    jumpAt = useRef(0),
+    teleportRef = useRef<(big: boolean) => void>(() => {});
   const [f, setF] = useState(initial),
     [ready, setReady] = useState(false),
     [flying, setFlying] = useState(false),
@@ -198,6 +229,13 @@ function App() {
   const [photoLoading, setPhotoLoading] = useState(false);
   const [gaugesExpanded, setGaugesExpanded] = useState(false);
   const [gaugeSize, setGaugeSize] = useState<GaugeSize>(readGaugeSize);
+  const [units, setUnitsState] = useState<UnitSystem>(readUnits);
+  const setUnits = (u: UnitSystem) => {
+    setUnitsState(u);
+    saveUnits(u);
+  };
+  const [audioState, setAudioState] = useState(() => flightAudio.state);
+  const [jumpFx, setJumpFx] = useState(0);
   const persistGaugeSize = (size: GaugeSize) => {
     setGaugeSize(size);
     try {
@@ -221,6 +259,14 @@ function App() {
   const [apMode, setApMode] = useState<"off" | "nav" | "hold">("off");
   const [nav, setNav] = useState<NavInfo | null>(null);
   const [muted, setMuted] = useState(() => flightAudio.muted);
+  useEffect(
+    () =>
+      flightAudio.subscribe(() => {
+        setAudioState(flightAudio.state);
+        setMuted(flightAudio.muted);
+      }),
+    [],
+  );
   const [credits, setCredits] = useState(false);
   const [flightHint, setFlightHint] = useState(false);
   const [paywall, setPaywall] = useState(false);
@@ -484,6 +530,52 @@ function App() {
     click.setInputAction((e: { position: C.Cartesian2 }) => {
       applyMapPick(e.position, "destination");
     }, C.ScreenSpaceEventType.RIGHT_CLICK);
+    teleportRef.current = (big: boolean) => {
+      if (!active.current || paused.current || flight.current.crashed) return;
+      if (aircraftRef.current.engine !== "saucer") return;
+      const now = performance.now();
+      if (now - jumpAt.current < JUMP_COOLDOWN_MS) return;
+      jumpAt.current = now;
+      const from = flight.current;
+      const groundAt = (lat: number, lon: number) => {
+        const h = v.scene.globe.getHeight(C.Cartographic.fromDegrees(lon, lat));
+        // Unknown terrain at the landing point: never go below today's ground.
+        return Number.isFinite(h) ? (h as number) : ground.current;
+      };
+      const to = teleportJump(from, big ? BIG_JUMP_M : JUMP_M, groundAt, JUMP_GROUND_MARGIN_M, saucerJumpPitch(from));
+      flight.current = to;
+      ground.current = Math.min(ground.current, to.alt - JUMP_GROUND_MARGIN_M);
+      apRef.current = disengageAutopilot(apRef.current);
+      snapCamera.current = true;
+      (window as unknown as { __mfLastJump?: unknown }).__mfLastJump = {
+        from: { lat: from.lat, lon: from.lon, alt: from.alt },
+        to: { lat: to.lat, lon: to.lon, alt: to.alt },
+        at: now,
+      };
+      setJumpFx((n) => n + 1);
+      setF({ ...to });
+      flightAudio.zap(big);
+      // Refine: sample detailed terrain / 3D tiles at the landing point and
+      // lift out if the jump ended inside a hill or building.
+      const cart = C.Cartographic.fromDegrees(to.lon, to.lat);
+      const terrain = v.terrainProvider.availability
+        ? C.sampleTerrainMostDetailed(v.terrainProvider, [cart]).catch(() => [cart])
+        : Promise.resolve([] as C.Cartographic[]);
+      const tileH =
+        tiles.current && v.scene.sampleHeightSupported
+          ? v.scene.sampleHeightMostDetailed([cart], heightExclude.current).catch(() => [])
+          : Promise.resolve([] as (C.Cartographic | undefined)[]);
+      void Promise.all([terrain, tileH]).then(([tp, hp]) => {
+        const c = flight.current;
+        if (Math.abs(c.lat - to.lat) > 0.02 || Math.abs(c.lon - to.lon) > 0.02) return;
+        const hs = [tp[0]?.height, hp[0]?.height].filter((x): x is number => Number.isFinite(x));
+        if (!hs.length) return;
+        const g = Math.max(...hs);
+        ground.current = g;
+        if (c.alt < g + JUMP_GROUND_MARGIN_M)
+          flight.current = { ...c, alt: g + JUMP_GROUND_MARGIN_M, crashed: false, onGround: false };
+      });
+    };
     const down = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).matches("input,select,textarea,button"))
         return;
@@ -503,6 +595,19 @@ function App() {
             cameraZoomTarget.current,
             k === "pageup" ? -1 : 1,
           );
+        }
+        return;
+      }
+      if (k === "j" && aircraftRef.current.engine === "saucer") {
+        // Jump warp (teleport); holding J repeats (cooldown-limited), even
+        // where the OS has key auto-repeat turned off.
+        teleportRef.current(e.shiftKey);
+        if (!e.repeat) {
+          const big = e.shiftKey;
+          const timer = window.setInterval(() => {
+            if (!keys.current.has("j") || !active.current) return window.clearInterval(timer);
+            teleportRef.current(big);
+          }, JUMP_COOLDOWN_MS + 20);
         }
         return;
       }
@@ -527,7 +632,10 @@ function App() {
         }
         setF({ ...flight.current });
       }
-      if (k === "h" && active.current) {
+      if (k === "h" && active.current && aircraftRef.current.engine === "saucer") {
+        flight.current = { ...flight.current, throttle: 0, vn: 0, ve: 0, vs: 0, speed: 0 };
+        setF({ ...flight.current });
+      } else if (k === "h" && active.current) {
         const rotor = rotorParams(aircraftRef.current);
         if (rotor && !flight.current.crashed) {
           flight.current = {
@@ -685,7 +793,8 @@ function App() {
         const h = v.scene.globe.getHeight(cart);
         if (h !== undefined) ground.current = h;
       }
-      if (now - terrainTime > 2000 && !pending.current) {
+      const warping = (a.warp ?? 0) > 0;
+      if (now - terrainTime > (warping ? 400 : 2000) && !pending.current) {
         terrainTime = now;
         pending.current = true;
         const sampledLat = a.lat,
@@ -703,8 +812,8 @@ function App() {
         Promise.all([terrain, tileHeight])
           .then(([points, tilePoints]) => {
             if (
-              Math.abs(flight.current.lat - sampledLat) < 0.02 &&
-              Math.abs(flight.current.lon - sampledLon) < 0.02
+              Math.abs(flight.current.lat - sampledLat) < (warping ? 0.5 : 0.02) &&
+              Math.abs(flight.current.lon - sampledLon) < (warping ? 0.5 : 0.02)
             ) {
               const terrainH = points[0]?.height;
               const tileH = tilePoints[0]?.height;
@@ -751,7 +860,18 @@ function App() {
         yaw: number;
         throttle: number;
         brake?: number;
-      } = {
+        vertical?: number;
+        forward?: number;
+      } = aircraftRef.current.engine === "saucer" ? {
+        // Saucer: W / stick UP = go up, S / stick DOWN = go down.
+        pitch: 0,
+        roll: clamp(keyboard.roll + touch.current.roll, -1, 1),
+        yaw: clamp(keyboard.yaw + touch.current.yaw, -1, 1),
+        throttle: keyboard.throttle,
+        vertical: clamp((keyboard.vertical ?? 0) - touch.current.pitch, -1, 1),
+        forward: keyboard.forward,
+        brake: 0,
+      } : {
         pitch: clamp(
           (invertPitch.current ? -keyboard.pitch : keyboard.pitch) + touch.current.pitch,
           -1,
@@ -856,6 +976,11 @@ function App() {
           "data-camera-orbit",
           `${orbit.current.yaw.toFixed(3)},${orbit.current.pitch.toFixed(3)}`,
         );
+        if (snapCamera.current) {
+          // Teleport: no lerp lag behind the saucer.
+          previousCamera = undefined;
+          snapCamera.current = false;
+        }
         previousCamera = smoothExteriorCamera(previousCamera, desired, dt);
         const zoomAlpha = 1 - Math.exp(-dt / 0.18);
         cameraZoom.current +=
@@ -897,7 +1022,10 @@ function App() {
       const frustum = v.camera.frustum as { fov?: number };
       if (typeof frustum.fov === "number") {
         const base = Math.PI / 3;
-        const stretch = 1 + (flight.current.warp ?? 0) * 0.14;
+        // Quick FOV punch for ~200 ms after a teleport jump.
+        const since = performance.now() - jumpAt.current;
+        const punch = jumpAt.current && since < 220 ? 0.3 * (1 - since / 220) : 0;
+        const stretch = 1 + (flight.current.warp ?? 0) * 0.1 + punch;
         frustum.fov += (base * stretch - frustum.fov) * 0.12;
       }
       const machNow = machNumber(flight.current);
@@ -1311,12 +1439,19 @@ function App() {
     const plane = planeEntity.current;
     if (plane?.model) plane.model.uri = new C.ConstantProperty(next.uri);
   };
+  const soundLabel = muted ? "🔇 Sound off" : audioState === "running" ? "🔊 Sound on" : "🔈 Tap for sound";
   const toggleMute = () => {
+    if (!flightAudio.muted && flightAudio.state !== "running") {
+      // Not muted, just locked/suspended: this tap unlocks instead of muting.
+      flightAudio.unlock();
+      flightAudio.beep();
+      return;
+    }
     const next = !flightAudio.muted;
-    void flightAudio.start().then(() => {
-      flightAudio.setMuted(next);
-      setMuted(next);
-    });
+    // Synchronous inside the click/tap (iOS needs that to unlock audio).
+    flightAudio.unlock();
+    flightAudio.setMuted(next);
+    setMuted(next);
   };
   const toggleAutopilot = () => {
     if (!active.current || flight.current.crashed) return;
@@ -1332,6 +1467,28 @@ function App() {
     apRef.current = engageAutopilot(flight.current);
     setApMode("nav");
   };
+  // Jump button: tap = one jump, hold = repeat (cooldown-limited).
+  const jumpTimer = useRef<number | null>(null);
+  const stopJumpHold = () => {
+    if (jumpTimer.current !== null) window.clearInterval(jumpTimer.current);
+    jumpTimer.current = null;
+  };
+  const jumpHold = {
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      teleportRef.current(e.shiftKey);
+      stopJumpHold();
+      jumpTimer.current = window.setInterval(() => teleportRef.current(false), JUMP_COOLDOWN_MS + 20);
+    },
+    onPointerUp: stopJumpHold,
+    onPointerCancel: stopJumpHold,
+    onPointerLeave: stopJumpHold,
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") teleportRef.current(e.shiftKey);
+    },
+  };
+  useEffect(() => stopJumpHold, []);
   const toggleWarp = (toMax = false) => {
     if (aircraft.engine === "saucer") {
       const warp = cycleWarp(flight.current.warp ?? 0, toMax);
@@ -1438,10 +1595,29 @@ function App() {
       data-entitled={entitlement.state?.entitled ? "true" : "false"}
       data-trial-ms={String(trialMs ?? entitlement.state?.trialRemainingMs ?? "")}
       data-warp={String(f.warp ?? 0)}
+      data-jumps={String(jumpFx)}
+      data-audio={audioState}
+      data-units={units}
       data-sonic={sonic ? "true" : "false"}
     >
       <div ref={host} className="globe" />
       {flying && (f.warp ?? 0) > 0 && <div className="warp-streaks" data-warp={f.warp} aria-hidden="true" />}
+      {flying && jumpFx > 0 && (
+        <div key={jumpFx} className="teleport-fx" data-jump={jumpFx} aria-hidden="true">
+          <div className="teleport-streaks" />
+        </div>
+      )}
+      {flying && !muted && audioState !== "running" && (
+        <button
+          className="tap-sound"
+          onClick={() => {
+            flightAudio.unlock();
+            flightAudio.beep();
+          }}
+        >
+          🔇 Tap for sound
+        </button>
+      )}
       {sonic && (
         <div
           className="sonic-boom"
@@ -1534,6 +1710,8 @@ function App() {
       </header>
       {flying && flightHint && (
         <div className="flight-hint" role="note">
+          <b>{controlHint(aircraft)}</b>
+          <br />
           Drag to look around · scroll to zoom · O autopilot · M mute · [ ] or G for gauges · ? for controls
         </div>
       )}
@@ -1728,18 +1906,19 @@ function App() {
             </div>
             <div className="settings">
               <label>
-                ALTITUDE <span>FT MSL</span>
+                ALTITUDE <span>{altLabel(units)} MSL</span>
                 <input
                   type="number"
-                  min="100"
-                  max={MAX_START_ALT_FT}
-                  step="100"
-                  key={alt}
-                  defaultValue={alt}
+                  min={Math.round(altFromFt(100, units))}
+                  max={Math.round(altFromFt(MAX_START_ALT_FT, units))}
+                  step={units === "metric" ? 50 : 100}
+                  key={`${alt}-${units}`}
+                  defaultValue={Math.round(altFromFt(alt, units))}
                   // Commit on blur / Enter so typing 2000000 isn't clamped per keystroke.
                   onBlur={(e) => {
-                    const v = startAltFt(e.target.value);
-                    e.target.value = String(v);
+                    const typed = Number(String(e.target.value).replace(/[,\s]/g, ""));
+                    const v = startAltFt(Number.isFinite(typed) ? altToFt(typed, units) : e.target.value);
+                    e.target.value = String(Math.round(altFromFt(v, units)));
                     setAlt(v);
                   }}
                   onKeyDown={(e) => {
@@ -1756,7 +1935,7 @@ function App() {
                   onChange={(e) => setAlt(sliderToAlt(Number(e.target.value)))}
                 />
                 <small className="alt-readout">
-                  {alt.toLocaleString()} ft
+                  {fmtInt(altFromFt(alt, units))} {altUnit(units)}
                   {alt >= 330000 ? " · space" : alt >= 100000 ? " · near space" : ""}
                 </small>
               </label>
@@ -1773,22 +1952,36 @@ function App() {
                 />
               </label>
               <label>
-                AIRSPEED <span>KTS</span>
+                AIRSPEED <span>{speedLabel(units)}</span>
                 <input
                   type="number"
-                  min={aircraft.plannerMinKt}
-                  max={aircraft.plannerMaxKt}
-                  value={speed}
+                  min={Math.ceil(speedFromKt(aircraft.plannerMinKt, units))}
+                  max={Math.floor(speedFromKt(aircraft.plannerMaxKt, units))}
+                  value={Math.round(speedFromKt(speed, units))}
                   onChange={(e) =>
                     setSpeed(
                       clamp(
-                        Number(e.target.value),
+                        speedToKt(Number(e.target.value), units),
                         aircraft.plannerMinKt,
                         aircraft.plannerMaxKt,
                       ),
                     )
                   }
                 />
+              </label>
+              <label className="units-setting">
+                UNITS <span>{UNIT_SYSTEMS.find((x) => x.id === units)?.detail}</span>
+                <select
+                  aria-label="Units"
+                  value={units}
+                  onChange={(e) => setUnits(e.target.value as UnitSystem)}
+                >
+                  {UNIT_SYSTEMS.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label} ({x.detail})
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <label className="ground-start">
@@ -1896,7 +2089,7 @@ function App() {
               aria-label={muted ? "Unmute" : "Mute"}
               onClick={toggleMute}
             >
-              {muted ? "Muted" : "Sound"} <kbd>M</kbd>
+              {soundLabel} <kbd>M</kbd>
             </button>
           </div>
           <button
@@ -1913,17 +2106,31 @@ function App() {
             onClick={() => toggleWarp()}
           >
             {aircraft.engine === "saucer"
-              ? `Warp ${f.warp ? (f.warp === 2 ? "Mach 4" : "Mach 1.2") : "off"} · B`
+              ? `Warp ${f.warp ? `${f.warp} · Mach ${WARP_MACH[f.warp]}` : "off"} · B`
               : `Boost ${f.boost ? "on" : "off"} · B`}
           </button>
+          {aircraft.engine === "saucer" && (
+            <button
+              className="desktop-boost desktop-jump"
+              aria-label="Jump"
+              {...jumpHold}
+            >
+              Jump 1 mi · J
+            </button>
+          )}
           <div className="phone-actions">
             <button
               aria-label={aircraft.engine === "saucer" ? "Warp" : "Speed boost"}
               aria-pressed={aircraft.engine === "saucer" ? (f.warp ?? 0) > 0 : f.boost}
               onClick={() => toggleWarp()}
             >
-              {aircraft.engine === "saucer" ? (f.warp === 2 ? "WARP 2" : f.warp ? "WARP" : "Warp") : "Boost"}
+              {aircraft.engine === "saucer" ? (f.warp ? `WARP ${f.warp}` : "Warp") : "Boost"}
             </button>
+            {aircraft.engine === "saucer" && (
+              <button aria-label="Jump" className="jump-btn" {...jumpHold}>
+                Jump
+              </button>
+            )}
             <button
               aria-pressed={apMode !== "off"}
               onClick={toggleAutopilot}
@@ -1934,7 +2141,7 @@ function App() {
               aria-pressed={muted}
               onClick={toggleMute}
             >
-              {muted ? "Muted" : "Sound"}
+              {soundLabel}
             </button>
             <button
               aria-expanded={gaugesExpanded}
@@ -1964,8 +2171,8 @@ function App() {
           </div>
           <div className="phone-hud" aria-label="Compact flight instruments">
             <span>
-              <small>KTS</small>
-              {Math.round(f.speed / 0.514444)}
+              <small>{speedLabel(units)}</small>
+              {fmtInt(speedFromMs(f.speed, units))}
             </span>
             {(aircraft.engine === "saucer" || machNumber(f) >= 0.8) && (
               <span data-mach={machNumber(f) >= 1 ? "1" : "0"}>
@@ -1974,16 +2181,16 @@ function App() {
               </span>
             )}
             <span>
-              <small>FT MSL</small>
-              {Math.round(f.alt / 0.3048).toLocaleString()}
+              <small>{altLabel(units)} MSL</small>
+              {fmtInt(altFromM(f.alt, units))}
             </span>
             <span>
               <small>HDG</small>
               {String(Math.round(f.heading) % 360).padStart(3, "0")}°
             </span>
             <span>
-              <small>FT AGL</small>
-              {Math.round((f.alt - ground.current) / 0.3048)}
+              <small>{altLabel(units)} AGL</small>
+              {fmtInt(altFromM(f.alt - ground.current, units))}
             </span>
           </div>
           <div className="rotate-hint">
@@ -2040,7 +2247,7 @@ function App() {
                 <span>
                   BRG {String(Math.round(nav.bearing) % 360).padStart(3, "0")}°
                 </span>
-                <span>{formatDistance(nav.distanceMeters)}</span>
+                <span>{formatDistanceUnits(nav.distanceMeters, units)}</span>
                 <span>
                   {nav.holding ? "HOLD" : `ETA ${formatEta(nav.etaSec)}`}
                 </span>
@@ -2050,9 +2257,14 @@ function App() {
           <div className="reticle">
             ┈┈ <span>⌖</span> ┈┈
           </div>
-          {cam === "cockpit" && <Cockpit flight={f} aircraft={aircraft} />}
+          {cam === "cockpit" && <Cockpit flight={f} aircraft={aircraft} units={units} />}
           {touchVisible && (
             <TouchControls
+              vertical={aircraft.engine === "saucer" ? "saucer" : isHoverCapable(aircraft) ? "heli" : undefined}
+              onHoldKey={(key, down) => {
+                if (down) keys.current.add(key);
+                else keys.current.delete(key);
+              }}
               throttle={f.throttle}
               onAxes={(axes) => {
                 touch.current = axes;
@@ -2083,14 +2295,14 @@ function App() {
             </div>
             <Instrument
               label="AIRSPEED"
-              value={Math.round(f.speed / 0.514444)}
-              unit="KTS"
+              value={fmtInt(speedFromMs(f.speed, units))}
+              unit={speedLabel(units)}
             />
             {(aircraft.engine === "saucer" || machNumber(f) >= 0.8) && (
               <Instrument
                 label="MACH"
                 value={machNumber(f).toFixed(2)}
-                unit={(f.warp ?? 0) === 2 ? "WARP 2" : (f.warp ?? 0) === 1 ? "WARP 1" : machNumber(f) >= 1 ? "SUPERSONIC" : "TAS"}
+                unit={(f.warp ?? 0) > 0 ? `WARP ${f.warp}` : machNumber(f) >= 1 ? "SUPERSONIC" : "TAS"}
               />
             )}
             <div className="attitude">
@@ -2103,23 +2315,23 @@ function App() {
             </div>
             <Instrument
               label="ALTITUDE"
-              value={Math.round(f.alt / 0.3048).toLocaleString()}
-              unit="FT MSL"
+              value={fmtInt(altFromM(f.alt, units))}
+              unit={`${altLabel(units)} MSL`}
             />
             <Instrument
               label="VERTICAL SPEED"
-              value={Math.round(f.vs * 196.85).toLocaleString()}
-              unit="FT / MIN"
+              value={fmtVs(f.vs, units)}
+              unit={vsLabel(units)}
             />
             <Instrument
-              label={isHoverCapable(aircraft) ? "COLLECTIVE" : "THROTTLE"}
+              label={aircraft.engine === "saucer" ? "FORWARD" : isHoverCapable(aircraft) ? "COLLECTIVE" : "THROTTLE"}
               value={Math.round(f.throttle * 100)}
-              unit={isHoverCapable(aircraft) ? `% · HOVER ${Math.round(HOVER_COLLECTIVE * 100)}` : "%"}
+              unit={aircraft.engine !== "saucer" && isHoverCapable(aircraft) ? `% · HOVER ${Math.round(HOVER_COLLECTIVE * 100)}` : "%"}
             />
             <Instrument
               label="CLEARANCE"
-              value={Math.round((f.alt - ground.current) / 0.3048).toLocaleString()}
-              unit="FT AGL"
+              value={fmtInt(altFromM(f.alt - ground.current, units))}
+              unit={`${altLabel(units)} AGL`}
             />
           </div>
           {f.onGround && !f.crashed && !pause && (
@@ -2276,16 +2488,28 @@ function App() {
           <p>
             Click the flight view to focus. Keyboard controls work while flying.
           </p>
+          <p className="control-hint">
+            <b>{aircraft.name}:</b> {controlHint(aircraft)}
+            {isHoverCapable(aircraft) && (
+              <>
+                <br />
+                On a phone or iPad, hold the big ▲ UP and ▼ DOWN buttons to go up and down.
+              </>
+            )}
+          </p>
           {(aircraft.engine === "saucer"
             ? [
-                ["R / + / Space", "Climb hard (vertical thrust)"],
-                ["F / −", "Descend hard (vertical thrust)"],
-                ["H", "Hold hover: stop and stay at this altitude"],
-                ["↑ ↓ / W S", "Pitch the nose (S points up and climbs steeply)"],
-                ["← → / A D", "Bank left / right"],
+                ["W / R / Space", "Go UP (hold)"],
+                ["S / F", "Go DOWN (hold)"],
+                ["↑ / ↓", "Push forward / back"],
+                ["+ / −", "Forward throttle (cruise speed)"],
+                ["H", "Stop: hover in place at this altitude"],
+                ["← → / A D", "Bank and turn left / right"],
                 ["Q / E", "Yaw left / right"],
-                ["B", "Warp: Mach 1.2, again for Mach 4, again to cancel"],
-                ["Shift+B", "Jump to Mach 4 warp (or cancel)"],
+                ["B", "Speed warp: Mach 1.2 → Mach 4 → Mach 10 → off"],
+                ["Shift+B", "Straight to Mach 10 warp (or off)"],
+                ["J", "Jump: teleport 1 mile the way you're flying (hold to repeat)"],
+                ["Shift+J", "Big jump: 10 miles"],
                 ["I", "Invert pitch keys"],
                 ["Scroll wheel", "Zoom camera in / out"],
                 ["Drag on the view", "Orbit the camera (pinch to zoom on touch)"],
@@ -2343,12 +2567,19 @@ function App() {
           ))}
           {aircraft.engine === "saucer" ? (
             <p>
-              The saucer hovers when you let go of the controls. R, +, or Space
-              climbs hard; F or − descends hard. Point the nose with W/S/A/D to
-              fly that way, including steep climbs with the nose up. Q and E yaw.
-              B turns on Warp (Mach 1.2); press again for Mach 4, and again to
-              cancel. Crossing Mach 1 makes a sonic boom. It does not stall, and
-              warp works at any altitude, including space.
+              The saucer holds its altitude when you let go. W (or R or Space)
+              goes straight up; S (or F) goes straight down. On a phone or iPad,
+              push the stick up to go up and down to go down, or hold the big
+              ▲ UP / ▼ DOWN buttons. A/D (stick left/right) bank and turn, Q and
+              E yaw. Forward speed comes from the throttle (+/− or the FORWARD
+              slider) and the ↑/↓ arrows; H stops and hovers. B (or the Warp
+              button) is speed warp: press once for Mach 1.2, twice for Mach 4,
+              three times for Mach 10, and a fourth time to turn it off. J (or
+              the Jump button) teleports you 1 mile the way you are flying,
+              including up or down if you are climbing or descending; hold it to
+              keep jumping, and Shift+J jumps 10 miles. You keep your speed and attitude and never land
+              underground. Crossing Mach 1 makes a sonic boom. It does not
+              stall, and it flies at any altitude, including space.
             </p>
           ) : isHoverCapable(aircraft) ? (
             <p>
@@ -2357,18 +2588,18 @@ function App() {
               Raise it to climb straight up, lower it to descend. Tilt the
               cyclic to fly that way; let go and the helicopter levels and
               slows to a hover. Ground effect adds lift near the ground, and
-              you gain extra lift above about 20 knots. Land gently (under
-              about 700 ft/min, level, slow) anywhere flat and you stay put;
+              you gain extra lift above about {fmtInt(speedFromKt(20, units))} {speedUnit(units)}. Land gently (under
+              about {units === "metric" ? "3.5 m/s" : "700 ft/min"}, level, slow) anywhere flat and you stay put;
               raise the collective to take off again. Helicopters do not stall.
             </p>
           ) : (
           <p>
-            Bank to turn. Touch down gently (under about 1,000 ft/min, wings
-            level) to land and roll out; Space brakes. Keep airspeed above {stallKnots(aircraft)} knots in
+            Bank to turn. Touch down gently (under about {units === "metric" ? "5 m/s" : "1,000 ft/min"}, wings
+            level) to land and roll out; Space brakes. Keep airspeed above {fmtInt(speedFromKt(stallKnots(aircraft), units))} {speedUnit(units)} in
             the {aircraft.name}. Autopilot holds altitude and speed and flies a
             great-circle to your destination, then circles in a hold. Manual
             stick or throttle input disengages it. Spawn height automatically
-            clears terrain by at least 150 m. Simplified recreational physics.
+            clears terrain by at least {units === "metric" ? "150 m" : "500 ft"}. Simplified recreational physics.
           </p>
           )}
         </section>
@@ -2494,7 +2725,7 @@ function App() {
             aria-pressed={muted}
             onClick={toggleMute}
           >
-            {muted ? "Muted" : "Sound"} · M
+            {soundLabel} · M
           </button>
           <span className="muted">
             {photo

@@ -18,8 +18,8 @@ export type Flight = {
   ve?: number;
   /** Helicopter only: smoothed yaw rate (deg/s). */
   yawRate?: number;
-  /** Saucer only: 0 off, 1 = Mach 1.2, 2 = Mach 4 warp. */
-  warp?: 0 | 1 | 2;
+  /** Saucer only: speed warp 0 off, 1 = Mach 1.2, 2 = Mach 4, 3 = Mach 10. */
+  warp?: 0 | 1 | 2 | 3;
   /** Planes: ballistic sink (m/s) built up in thin air at extreme altitude. */
   sink?: number;
 };
@@ -30,6 +30,10 @@ export type Controls = {
   throttle: number;
   /** Wheel brakes on the ground, 0..1. */
   brake?: number;
+  /** Saucer only: direct vertical command, +1 up … −1 down (W/S, R/F, stick). */
+  vertical?: number;
+  /** Saucer only: momentary forward / back push (arrow keys), −1…1. */
+  forward?: number;
 };
 /** Highest selectable start altitude: 2,000,000 ft (609.6 km, low orbit). */
 export const MAX_START_ALT_FT = 2_000_000;

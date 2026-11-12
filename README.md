@@ -93,7 +93,19 @@ Phone flight mode defaults to a compact speed/altitude/heading/clearance strip, 
 
 ### Arcade speed boost
 
-Choose a departure airspeed up to **2,000 knots**; speeds above 480 knots automatically enable Boost. During flight press **B** or tap **Boost** to toggle arcade thrust and a higher speed ceiling (about 2,100 knots). Raise throttle to accelerate. Switching Boost off decelerates gradually toward normal jet speeds. This mode is deliberately for fun rather than realistic Learjet performance.
+Choose a departure airspeed up to about **2,300 mph** (2,000 kt); speeds above 480 kt (about 550 mph) automatically enable Boost. During flight press **B** or tap **Boost** to toggle arcade thrust and a higher speed ceiling (about 2,400 mph). Raise throttle to accelerate. Switching Boost off decelerates gradually toward normal jet speeds. This mode is deliberately for fun rather than realistic Learjet performance.
+
+### Units
+
+Speeds, altitudes and vertical speed default to **Imperial** (mph, ft, ft/min). Pick **Aviation** (kt, ft, ft/min) or **Metric** (km/h, m, m/s) under *Units* in the flight planner; the choice is saved in the browser (`maddflight-units`). Values are stored internally in SI / knots-feet and only converted for display, so switching units never drifts a value.
+
+### Saucer controls
+
+W / R / Space go **up**, S / F go **down** (direct vertical motion; on touch screens push the stick up/down or hold the big ▲ UP / ▼ DOWN buttons). A/D bank and turn, Q/E yaw, ↑/↓ push forward/back and +/− (or the FORWARD slider) set cruise speed. **B** is speed warp: Mach 1.2 → Mach 4 → Mach 10 → off (Shift+B straight to Mach 10). **J** (or the Jump button) teleports 1 mile along the direction of travel, including up or down while climbing or descending, never below the terrain; hold to repeat, Shift+J jumps 10 miles.
+
+### Sound
+
+All sound is synthesized with Web Audio (no audio files). It starts on the first tap, click or key press. On iPhone/iPad the page asks for the media ("playback") audio session and plays a silent looping clip on the first tap, so the ring/silent switch does not mute it. If the browser has not allowed audio yet, a **Tap for sound** button appears while flying.
 
 ### Enter a Google key in the app
 

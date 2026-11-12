@@ -9,7 +9,7 @@ import { spawn, step, type Flight } from "../src/physics.ts";
 const heli = aircraftById("bell206");
 const neutral = { pitch: 0, roll: 0, yaw: 0, throttle: 0 };
 const run = (f: Flight, keys: string[], secs: number, ground = 0, a = heli) => {
-  const c = keyboardControls(new Set(keys));
+  const c = keyboardControls(new Set(keys), a.engine === "saucer" ? "saucer" : undefined);
   for (let i = 0; i < secs * 120; i++) f = stepAircraft(a, f, c, 1 / 120, ground);
   return f;
 };
