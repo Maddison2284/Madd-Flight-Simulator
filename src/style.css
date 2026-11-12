@@ -2101,3 +2101,412 @@ button[data-ap="hold"] {
   text-align: center;
   margin: 8px 0 0;
 }
+
+/* ---- Responsive chrome (phones, tablets, notched devices) ---- */
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+html,
+body {
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+}
+main {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+h1 {
+  font-size: clamp(28px, 7vw, 48px);
+  letter-spacing: -0.04em;
+}
+.brand-logo {
+  height: clamp(22px, 4.6vw, 34px);
+  width: auto;
+  max-width: 46vw;
+  object-fit: contain;
+}
+
+header {
+  height: auto;
+  min-height: 56px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+.top-right {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+  gap: 8px;
+}
+.top-right button,
+.top-right a,
+.top-right .plan-chip,
+.top-right .trial-chip,
+.top-right .admin-link {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+header kbd {
+  display: none;
+}
+
+.dispatch {
+  top: calc(var(--chrome-top, 126px) + 8px);
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: calc(var(--chrome-bottom, 52px) + 8px);
+  max-height: none;
+  width: min(370px, calc(100% - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.places {
+  max-height: calc(100svh - var(--chrome-top, 126px) - var(--chrome-bottom, 52px) - 24px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+footer {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 48px;
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  row-gap: 4px;
+}
+footer button,
+footer a,
+.legal-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  margin-left: 0;
+}
+footer > div {
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.settings {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.settings input,
+.settings input.alt-slider {
+  min-height: 44px;
+}
+.quick-dest button,
+.click-mode button,
+.clear-dest,
+.route-swap button,
+.aircraft-picker button,
+.ground-start {
+  min-height: 44px;
+  padding: 10px 12px;
+}
+.launch {
+  min-height: 48px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  box-shadow: 0 -10px 18px #0c1a23;
+}
+
+.help,
+.credits,
+.paywall,
+.google-settings,
+.clerk-modal-card,
+.billing-panel {
+  max-width: min(460px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  max-height: calc(100svh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.help {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  left: auto;
+  width: min(350px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  z-index: 20;
+}
+.credits {
+  top: max(12px, calc(env(safe-area-inset-top, 0px) + 8px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  max-height: calc(100svh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+.paywall-backdrop,
+.clerk-modal,
+.google-settings-backdrop {
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+  align-items: center;
+  justify-content: center;
+}
+.clerk-modal-card > .close {
+  top: 8px;
+  right: 8px;
+}
+.paywall .eyebrow,
+.paywall h2,
+.paywall p {
+  overflow-wrap: anywhere;
+}
+.heading-strip,
+.heading-strip[data-nav="on"] {
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+}
+
+/* Phones and narrow tablets: full-width planner sheet. */
+@media (max-width: 900px) {
+  .dispatch {
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    width: auto;
+    max-width: none;
+  }
+  .places {
+    display: none;
+  }
+  .settings {
+    grid-template-columns: 1fr;
+  }
+  .aircraft-picker {
+    grid-template-columns: 1fr 1fr;
+  }
+  .top-right > span:not(.trial-chip):not(.live-dot) {
+    display: none;
+  }
+  .brand-tag {
+    display: none;
+  }
+  footer .muted {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .aircraft-picker {
+    grid-template-columns: 1fr;
+  }
+  .paywall-plans,
+  .paywall-form {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+}
+
+/* Short landscape phones: compact chrome so every planner item can be scrolled to. */
+@media (max-height: 500px) {
+  header {
+    min-height: 0;
+    padding: calc(4px + env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 4px max(10px, env(safe-area-inset-left, 0px));
+  }
+  .dispatch {
+    padding: 12px;
+  }
+  .dispatch h1 {
+    font-size: clamp(20px, 5vh, 28px);
+    margin: 6px 0 4px;
+  }
+  .dispatch .intro,
+  .dispatch .hint,
+  .dispatch .panel-foot,
+  .brand small,
+  .brand-tag {
+    display: none;
+  }
+  footer {
+    min-height: 0;
+    padding: 2px max(10px, env(safe-area-inset-right, 0px)) calc(2px + env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
+  }
+  .settings {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 8px 0;
+  }
+  .help,
+  .credits,
+  .paywall,
+  .google-settings,
+  .clerk-modal-card {
+    max-height: calc(100svh - 12px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Flight touch bar: don't duplicate AP / Sound already in phone-actions. */
+@media (max-width: 600px), (max-height: 500px) and (max-width: 1100px) {
+  [data-touch="true"] .flight-actions .ap-toggle,
+  [data-touch="true"] .flight-actions .mute-toggle {
+    display: none;
+  }
+  [data-touch="true"] .flight-actions {
+    flex-wrap: wrap;
+    height: auto;
+    max-width: calc(100% - 150px);
+    right: 140px;
+  }
+  [data-touch="true"] .phone-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 46%;
+  }
+  [data-touch="true"] .phone-hud {
+    flex-wrap: wrap;
+    white-space: normal;
+    justify-content: center;
+    row-gap: 2px;
+  }
+  [data-touch="true"] .flight-hint {
+    display: none;
+  }
+}
+
+/* Admin page must scroll on small screens. */
+.admin-page {
+  min-height: 100dvh;
+  height: 100dvh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.admin-page header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: auto;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+}
+.admin-panel {
+  top: 16px;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  width: min(560px, calc(100% - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  max-height: none;
+  margin-bottom: 24px;
+}
+
+/* Warp / sonic boom visuals (saucer). */
+.warp-streaks,
+.sonic-boom {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+.warp-streaks {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 18px,
+      #e8fff655 18px 19px,
+      transparent 19px 42px
+    );
+  animation: warp-streak 0.35s linear infinite;
+  opacity: 0.35;
+  mix-blend-mode: screen;
+}
+.warp-streaks[data-warp="2"] {
+  opacity: 0.55;
+  animation-duration: 0.16s;
+}
+@keyframes warp-streak {
+  from { transform: translateX(0); }
+  to { transform: translateX(-42px); }
+}
+.sonic-boom {
+  background:
+    radial-gradient(circle at 50% 55%, #fff 0 8%, #9af7ff88 18%, #ffffff00 62%);
+  animation: sonic-flash 0.55s ease-out forwards;
+}
+.sonic-boom::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  width: 20px;
+  height: 20px;
+  border: 3px solid #e8ffffcc;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: sonic-cone 0.55s ease-out forwards;
+}
+@keyframes sonic-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes sonic-cone {
+  0% { width: 20px; height: 20px; opacity: 1; }
+  100% { width: min(140vw, 140vh); height: min(140vw, 140vh); opacity: 0; }
+}
+.phone-hud [data-mach="1"] {
+  color: #ffe08a;
+}
+
+/* 44px tap targets for app controls (not inline legal-page text links). */
+button,
+select,
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="password"],
+input[type="search"],
+input[type="range"],
+.top-right a,
+footer a,
+.legal-link,
+.admin-link,
+.credit-row a,
+.panel-foot a,
+.auth-switch button,
+.auth-legal a,
+.paywall .hint a,
+.billing-panel .hint a {
+  min-height: 44px;
+  min-width: 44px;
+}
+.close {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 900px) {
+  .dispatch .hint {
+    display: none;
+  }
+}
+
+/* Portrait phones: keep the top action row on one line so it doesn't cover the HUD. */
+@media (max-width: 600px) and (orientation: portrait) {
+  [data-touch="true"] .phone-actions .gauge-size {
+    display: none;
+  }
+  [data-touch="true"] .phone-actions {
+    max-width: none;
+    flex-wrap: nowrap;
+  }
+  [data-touch="true"] .phone-hud {
+    z-index: 5;
+    top: calc(58px + env(safe-area-inset-top, 0px));
+  }
+  [data-touch="true"] .rotate-hint {
+    top: calc(102px + env(safe-area-inset-top, 0px));
+    z-index: 3;
+  }
+  [data-touch="true"][data-gauges="expanded"] .rotate-hint {
+    display: none;
+  }
+}

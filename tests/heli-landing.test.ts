@@ -121,8 +121,10 @@ test("saucer hovers, climbs and lands vertically with no stall", () => {
   const a = f.alt;
   f = run(f, [], 15, 0, saucer);
   assert.ok(Math.abs(f.alt - a) < 3 && Math.abs(f.vs) < 0.2, `hover ${f.alt - a}`);
-  f = run(f, ["f"], 0.4, 0, saucer);
+  // Hands-off holds a hover, so keep a light descent input until touchdown.
+  // The saucer flares near the ground for a safe landing.
+  const down = keyboardControls(new Set(["f"]), "saucer");
   for (let i = 0; i < 120 * 120 && !f.onGround && !f.crashed; i++)
-    f = stepAircraft(saucer, f, neutral, 1 / 120, 0);
-  assert.ok(f.onGround && !f.crashed);
+    f = stepAircraft(saucer, f, down, 1 / 120, 0);
+  assert.ok(f.onGround && !f.crashed, `landed alt=${f.alt} vs=${f.vs} crashed=${f.crashed}`);
 });

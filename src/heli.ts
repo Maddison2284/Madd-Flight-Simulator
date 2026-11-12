@@ -16,7 +16,16 @@ import { clamp, wrap, type Controls, type Flight } from "./physics";
  * - No stall. Safe touchdowns settle on the skids; lift off with collective.
  */
 export const HOVER_COLLECTIVE = 0.5;
-export type RotorcraftParams = typeof HELI & { /** Fictional craft that keeps lift in space (saucer). */ spaceCapable?: boolean };
+export type RotorcraftParams = typeof HELI & {
+  /** Fictional craft that keeps lift in space (saucer). */
+  spaceCapable?: boolean;
+  /** Bidirectional hover thrust scale (1 = hover, 0 = strong down, 1.0 collective = this many g up). */
+  thrustGain?: number;
+  /** Horizontal / nose-pointing acceleration at full tilt (m/s²). */
+  cruiseAccel?: number;
+  /** Max warp acceleration (m/s²) while closing on the target speed. */
+  warpAccel?: number;
+};
 export const HELI = {
   gear: 1.7, // model origin above the skids (m)
   collectiveRate: 0.35, // collective travel per second while a key is held
@@ -228,22 +237,186 @@ function move(f: Flight, vn: number, ve: number, dt: number) {
   return { lat, lon };
 }
 
-/** MADD Saucer: same hover model, tuned as a fictional spacecraft. Stronger
- * tilt and lower drag (~250 kt), quick yaw, almost no ground effect or ETL. */
+/** Speed of sound at sea level (m/s). Used for saucer Mach / warp. */
+export const MACH_MS = 340.29;
+/** Warp 1 cruises at Mach 1.2 (~921 mph); warp 2 at Mach 4 (~3,068 mph). */
+export const WARP_MACH = [0, 1.2, 4] as const;
+export function warpTargetMs(warp = 0): number {
+  const m = WARP_MACH[warp as 0 | 1 | 2] ?? 0;
+  return m * MACH_MS;
+}
+export function cycleWarp(warp = 0, toMax = false): 0 | 1 | 2 {
+  if (toMax) return warp === 2 ? 0 : 2;
+  return (warp >= 2 ? 0 : ((warp || 0) + 1)) as 0 | 1 | 2;
+}
+export function flightSpeed3d(f: Flight): number {
+  return Math.hypot(f.vn ?? f.speed ?? 0, f.ve ?? 0, f.vs ?? 0);
+}
+export function machNumber(f: Flight): number {
+  return flightSpeed3d(f) / MACH_MS;
+}
+
+/** MADD Saucer: UFO hover + point-the-nose flight, not a helicopter disc.
+ * Strong bidirectional vertical thrust, steep visible tilt, and warp. */
 export const SAUCER: RotorcraftParams = {
   spaceCapable: true,
   ...HELI,
   gear: 1.4,
-  collectiveRate: 0.3,
-  maxTiltDeg: 30,
-  attitudeResponse: 3.5,
-  verticalDamping: 1.2,
-  dragLinear: 0.02,
-  dragQuadratic: 0.00012,
-  yawRateMax: 90,
-  yawResponse: 3,
+  collectiveRate: 1.8,
+  maxTiltDeg: 65,
+  attitudeResponse: 9,
+  verticalDamping: 2.2,
+  dragLinear: 0.04,
+  dragQuadratic: 0.00004,
+  yawRateMax: 140,
+  yawResponse: 6,
   rotorDiameter: 10,
-  groundEffect: 0.05,
+  groundEffect: 0.04,
   etl: 0,
-  landing: { maxSinkMs: 4.5, maxTiltDeg: 20, maxSpeedMs: 15 },
+  thrustGain: 6,
+  cruiseAccel: 32,
+  warpAccel: 110,
+  landing: { maxSinkMs: 6, maxTiltDeg: 30, maxSpeedMs: 25 },
 };
+
+/** Arcade flying-saucer step: hover jets are world-up and bidirectional, the
+ * craft accelerates along its nose (so a pitched-up saucer climbs steeply),
+ * and warp ramps 3-D speed to Mach 1.2 / Mach 4 at any altitude. Hands-off
+ * holds a hover. No stall. */
+export function stepSaucer(
+  f: Flight,
+  c: Controls,
+  dt: number,
+  ground: number,
+  P: RotorcraftParams = SAUCER,
+): Flight {
+  if (f.crashed) return f;
+  dt = clamp(dt, 0, 0.05);
+  const warp = (f.warp ?? 0) as 0 | 1 | 2;
+  let collective = clamp(f.throttle + c.throttle * dt * P.collectiveRate, 0, 1);
+  let vn = f.vn ?? f.speed * Math.cos(f.heading * rad);
+  let ve = f.ve ?? f.speed * Math.sin(f.heading * rad);
+  let vs = f.vs;
+  const cp = clamp(c.pitch, -1, 1),
+    cr = clamp(c.roll, -1, 1);
+  const collectiveInput = Math.abs(c.throttle) >= 0.08;
+  const handsOff =
+    Math.abs(cp) < 0.08 && Math.abs(cr) < 0.08 && !collectiveInput && warp === 0;
+
+  const targetPitch = cp * P.maxTiltDeg;
+  const targetRoll = cr * P.maxTiltDeg;
+  const k = 1 - Math.exp(-dt * P.attitudeResponse);
+  let pitch = f.pitch + (targetPitch - f.pitch) * k;
+  let roll = f.roll + (targetRoll - f.roll) * k;
+
+  const yk = 1 - Math.exp(-dt * P.yawResponse);
+  const onGround = Boolean(f.onGround);
+  let yawRate =
+    (f.yawRate ?? 0) +
+    (clamp(c.yaw, -1, 1) * P.yawRateMax - (f.yawRate ?? 0)) * yk;
+  const heading = wrap(f.heading + yawRate * dt);
+  const p = pitch * rad,
+    r = roll * rad,
+    h = heading * rad;
+
+  // Bidirectional hover jets along world-up. 0.5 collective = hover (0 g net).
+  const gain = P.thrustGain ?? 6;
+  let hoverA = G * (collective - HOVER_COLLECTIVE) * gain;
+  if (!collectiveInput) {
+    // Hands-off collective: ease back to hover and kill vertical speed.
+    collective += (HOVER_COLLECTIVE - collective) * (1 - Math.exp(-dt * 4));
+    hoverA = -vs * (P.verticalDamping * (handsOff ? 3 : 1.6));
+  }
+
+  const tilt = Math.min(1, Math.hypot(pitch, roll) / Math.max(1, P.maxTiltDeg));
+  const cruise = (P.cruiseAccel ?? 32) * tilt;
+  const fwdN = Math.cos(p) * Math.cos(h);
+  const fwdE = Math.cos(p) * Math.sin(h);
+  const fwdU = Math.sin(p);
+  const rightN = -Math.sin(h);
+  const rightE = Math.cos(h);
+  const strafe = (P.cruiseAccel ?? 32) * clamp(roll / P.maxTiltDeg, -1, 1);
+
+  const spd3 = Math.hypot(vn, ve, vs);
+  const target = warpTargetMs(warp);
+  let warpA = 0;
+  if (target > 0) {
+    const slack = target - spd3;
+    const cap = (P.warpAccel ?? 110) * (warp >= 2 ? 2 : 1);
+    warpA = slack >= 0 ? Math.min(cap, Math.max(12, slack * 1.4)) : slack * 0.8;
+  }
+
+  const aN = (cruise + warpA) * fwdN + strafe * rightN;
+  const aE = (cruise + warpA) * fwdE + strafe * rightE;
+  const aU = hoverA + (cruise + warpA) * fwdU;
+
+  const drag = warp > 0 ? 0.015 : handsOff ? 2.8 : P.dragLinear + P.dragQuadratic * spd3;
+  vn += (aN - drag * vn) * dt;
+  ve += (aE - drag * ve) * dt;
+  vs += (aU - (handsOff || warp ? 0 : P.dragLinear * vs)) * dt;
+
+  // Gentle flare so a controlled descent settles instead of cratering.
+  const agl = f.alt - ground - P.gear;
+  if (warp === 0 && vs < 0 && agl < 25) {
+    const safe = -P.landing.maxSinkMs * 0.4;
+    const flare = 1 - Math.min(1, Math.max(0, agl) / 25);
+    vs += (safe - vs) * flare * (1 - Math.exp(-dt * 14));
+    if (agl < 4) vs = Math.max(vs, -P.landing.maxSinkMs * 0.7);
+  }
+
+  if (onGround) {
+    if (aU > 0.2) {
+      vs = Math.max(vs, 0);
+    } else {
+      const fr = Math.exp(-dt / 0.25);
+      vn *= fr;
+      ve *= fr;
+      const lk = 1 - Math.exp(-dt * 5);
+      pitch -= pitch * lk;
+      roll -= roll * lk;
+      return {
+        ...f,
+        alt: ground + P.gear,
+        heading,
+        pitch,
+        roll,
+        throttle: collective,
+        vn,
+        ve,
+        vs: 0,
+        speed: Math.hypot(vn, ve),
+        yawRate,
+        stall: false,
+        crashed: false,
+        onGround: true,
+        warp,
+        ...move(f, vn, ve, dt),
+      };
+    }
+  }
+
+  const alt = f.alt + vs * dt;
+  const next: Flight = {
+    ...f,
+    ...move(f, vn, ve, dt),
+    alt: Math.max(ground + P.gear, alt),
+    heading,
+    pitch,
+    roll,
+    throttle: collective,
+    vn,
+    ve,
+    vs,
+    speed: Math.hypot(vn, ve, vs),
+    yawRate,
+    stall: false,
+    crashed: false,
+    onGround: false,
+    warp,
+    boost: warp > 0,
+  };
+  if (alt > ground + P.gear) return next;
+  const touch = { ...next, speed: Math.hypot(vn, ve) };
+  if (!isSafeHeliTouchdown(touch, P)) return { ...next, crashed: true };
+  return { ...touch, alt: ground + P.gear, vs: 0, onGround: true };
+}

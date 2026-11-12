@@ -18,6 +18,8 @@ export type Flight = {
   ve?: number;
   /** Helicopter only: smoothed yaw rate (deg/s). */
   yawRate?: number;
+  /** Saucer only: 0 off, 1 = Mach 1.2, 2 = Mach 4 warp. */
+  warp?: 0 | 1 | 2;
   /** Planes: ballistic sink (m/s) built up in thin air at extreme altitude. */
   sink?: number;
 };

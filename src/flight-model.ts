@@ -6,7 +6,7 @@ import {
   type NavInfo,
 } from "./autopilot";
 import type { Destination } from "./destinations";
-import { HELI, hoverTrimCollective, spawnHeli, stepHeli, type RotorcraftParams } from "./heli";
+import { HELI, SAUCER, hoverTrimCollective, spawnHeli, stepHeli, stepSaucer, type RotorcraftParams } from "./heli";
 import { clamp, spawn, step, type Controls, type Flight } from "./physics";
 
 /** Rotorcraft params for hover-capable aircraft, or null for fixed-wing. */
@@ -43,6 +43,7 @@ export function stepAircraft(
   ground: number,
 ): Flight {
   const rotor = rotorParams(aircraft);
+  if (aircraft.engine === "saucer") return stepSaucer(f, c, dt, ground, rotor ?? SAUCER);
   return rotor
     ? stepHeli(f, c, dt, ground, rotor)
     : step(f, c, dt, ground, aircraft.performance);

@@ -28,7 +28,7 @@ import {
   spawnAircraft,
   stepAircraft,
 } from "./flight-model";
-import { hoverTrimCollective, HOVER_COLLECTIVE } from "./heli";
+import { hoverTrimCollective, HOVER_COLLECTIVE, cycleWarp, machNumber, flightSpeed3d } from "./heli";
 import { ROTOR_PARTS, RotorAnimator } from "./rotors";
 import { MAX_START_ALT_FT, altToSlider, sliderToAlt, startAltFt } from "./altitude";
 import { TouchControls, type TouchAxes } from "./TouchControls";
@@ -176,6 +176,7 @@ function App() {
     [error, setError] = useState(""),
     [photo, setPhoto] = useState(false),
     [help, setHelp] = useState(false),
+    [sonic, setSonic] = useState(false),
     [startOnGround, setStartOnGround] = useState(false),
     [billingOpen, setBillingOpen] = useState(false),
     [billingMessage, setBillingMessage] = useState("");
@@ -518,7 +519,12 @@ function App() {
         setCam(camera.current);
       }
       if (k === "b") {
-        flight.current = { ...flight.current, boost: !flight.current.boost };
+        if (aircraftRef.current.engine === "saucer") {
+          const warp = cycleWarp(flight.current.warp ?? 0, e.shiftKey);
+          flight.current = { ...flight.current, warp, boost: warp > 0 };
+        } else {
+          flight.current = { ...flight.current, boost: !flight.current.boost };
+        }
         setF({ ...flight.current });
       }
       if (k === "h" && active.current) {
@@ -641,6 +647,7 @@ function App() {
     hostEl.addEventListener("dblclick", dblClick);
     let last = performance.now(),
       ui = 0,
+      lastMach = 0,
       terrainTime = 0,
       accumulator = 0;
     let previousCamera: ExteriorCameraPose | undefined;
@@ -735,7 +742,7 @@ function App() {
           .catch(() => {})
           .finally(() => (pending.current = false));
       }
-      const keyboard = keyboardControls(keys.current);
+      const keyboard = keyboardControls(keys.current, aircraftRef.current.engine === "saucer" ? "saucer" : undefined);
       const perf = aircraftRef.current.performance;
       const dest = destRef.current;
       const pilot: {
@@ -887,6 +894,15 @@ function App() {
           },
         });
       }
+      const frustum = v.camera.frustum as { fov?: number };
+      if (typeof frustum.fov === "number") {
+        const base = Math.PI / 3;
+        const stretch = 1 + (flight.current.warp ?? 0) * 0.14;
+        frustum.fov += (base * stretch - frustum.fov) * 0.12;
+      }
+      const machNow = machNumber(flight.current);
+      if (active.current && lastMach < 1 && machNow >= 1) setSonic(true);
+      lastMach = active.current ? machNow : 0;
       if (now - ui > 100) {
         setF({ ...flight.current });
         setNav(navRef.current);
@@ -898,6 +914,8 @@ function App() {
           stall: flight.current.stall && !isHoverCapable(aircraftRef.current),
           throttle: flight.current.throttle,
           speed: flight.current.speed,
+          speedMs: flightSpeed3d(flight.current),
+          warp: flight.current.warp ?? 0,
           boost: flight.current.boost,
           engine: aircraftRef.current.engine,
           afterburner:
@@ -1314,6 +1332,42 @@ function App() {
     apRef.current = engageAutopilot(flight.current);
     setApMode("nav");
   };
+  const toggleWarp = (toMax = false) => {
+    if (aircraft.engine === "saucer") {
+      const warp = cycleWarp(flight.current.warp ?? 0, toMax);
+      flight.current = { ...flight.current, warp, boost: warp > 0 };
+    } else {
+      flight.current = { ...flight.current, boost: !flight.current.boost };
+    }
+    setF({ ...flight.current });
+  };
+  useEffect(() => {
+    const layout = () => {
+      const header = document.querySelector("main > header");
+      const footer = document.querySelector("main > footer");
+      const root = document.documentElement;
+      if (header) {
+        root.style.setProperty("--chrome-top", `${Math.round(header.getBoundingClientRect().bottom)}px`);
+      }
+      if (footer) {
+        const r = footer.getBoundingClientRect();
+        root.style.setProperty("--chrome-bottom", `${Math.round(window.innerHeight - r.top)}px`);
+      }
+    };
+    layout();
+    const ro = new ResizeObserver(layout);
+    const header = document.querySelector("main > header");
+    const footer = document.querySelector("main > footer");
+    if (header) ro.observe(header);
+    if (footer) ro.observe(footer);
+    window.addEventListener("resize", layout);
+    window.addEventListener("orientationchange", layout);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", layout);
+      window.removeEventListener("orientationchange", layout);
+    };
+  }, [flying, help, credits, paywall, billingOpen, authOpen]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement).matches("input,select,textarea,button"))
@@ -1383,8 +1437,18 @@ function App() {
       data-auth={isSignedIn ? "in" : "out"}
       data-entitled={entitlement.state?.entitled ? "true" : "false"}
       data-trial-ms={String(trialMs ?? entitlement.state?.trialRemainingMs ?? "")}
+      data-warp={String(f.warp ?? 0)}
+      data-sonic={sonic ? "true" : "false"}
     >
       <div ref={host} className="globe" />
+      {flying && (f.warp ?? 0) > 0 && <div className="warp-streaks" data-warp={f.warp} aria-hidden="true" />}
+      {sonic && (
+        <div
+          className="sonic-boom"
+          aria-hidden="true"
+          onAnimationEnd={() => setSonic(false)}
+        />
+      )}
       {(photoLoading || status.startsWith("Loading Google")) && (
         <div className="scenery-loading" role="status">
           Loading Google 3D tiles…
@@ -1844,30 +1908,21 @@ function App() {
           </button>
           <button
             className="desktop-boost"
-            aria-pressed={f.boost}
-            onClick={() => {
-              flight.current = {
-                ...flight.current,
-                boost: !flight.current.boost,
-              };
-              setF({ ...flight.current });
-            }}
+            aria-pressed={aircraft.engine === "saucer" ? (f.warp ?? 0) > 0 : f.boost}
+            aria-label={aircraft.engine === "saucer" ? "Warp" : "Speed boost"}
+            onClick={() => toggleWarp()}
           >
-            Boost {f.boost ? "on" : "off"} · B
+            {aircraft.engine === "saucer"
+              ? `Warp ${f.warp ? (f.warp === 2 ? "Mach 4" : "Mach 1.2") : "off"} · B`
+              : `Boost ${f.boost ? "on" : "off"} · B`}
           </button>
           <div className="phone-actions">
             <button
-              aria-label="Speed boost"
-              aria-pressed={f.boost}
-              onClick={() => {
-                flight.current = {
-                  ...flight.current,
-                  boost: !flight.current.boost,
-                };
-                setF({ ...flight.current });
-              }}
+              aria-label={aircraft.engine === "saucer" ? "Warp" : "Speed boost"}
+              aria-pressed={aircraft.engine === "saucer" ? (f.warp ?? 0) > 0 : f.boost}
+              onClick={() => toggleWarp()}
             >
-              Boost
+              {aircraft.engine === "saucer" ? (f.warp === 2 ? "WARP 2" : f.warp ? "WARP" : "Warp") : "Boost"}
             </button>
             <button
               aria-pressed={apMode !== "off"}
@@ -1912,6 +1967,12 @@ function App() {
               <small>KTS</small>
               {Math.round(f.speed / 0.514444)}
             </span>
+            {(aircraft.engine === "saucer" || machNumber(f) >= 0.8) && (
+              <span data-mach={machNumber(f) >= 1 ? "1" : "0"}>
+                <small>MACH</small>
+                {machNumber(f).toFixed(2)}
+              </span>
+            )}
             <span>
               <small>FT MSL</small>
               {Math.round(f.alt / 0.3048).toLocaleString()}
@@ -2025,6 +2086,13 @@ function App() {
               value={Math.round(f.speed / 0.514444)}
               unit="KTS"
             />
+            {(aircraft.engine === "saucer" || machNumber(f) >= 0.8) && (
+              <Instrument
+                label="MACH"
+                value={machNumber(f).toFixed(2)}
+                unit={(f.warp ?? 0) === 2 ? "WARP 2" : (f.warp ?? 0) === 1 ? "WARP 1" : machNumber(f) >= 1 ? "SUPERSONIC" : "TAS"}
+              />
+            )}
             <div className="attitude">
               <div
                 style={{
@@ -2208,7 +2276,29 @@ function App() {
           <p>
             Click the flight view to focus. Keyboard controls work while flying.
           </p>
-          {(isHoverCapable(aircraft)
+          {(aircraft.engine === "saucer"
+            ? [
+                ["R / + / Space", "Climb hard (vertical thrust)"],
+                ["F / −", "Descend hard (vertical thrust)"],
+                ["H", "Hold hover: stop and stay at this altitude"],
+                ["↑ ↓ / W S", "Pitch the nose (S points up and climbs steeply)"],
+                ["← → / A D", "Bank left / right"],
+                ["Q / E", "Yaw left / right"],
+                ["B", "Warp: Mach 1.2, again for Mach 4, again to cancel"],
+                ["Shift+B", "Jump to Mach 4 warp (or cancel)"],
+                ["I", "Invert pitch keys"],
+                ["Scroll wheel", "Zoom camera in / out"],
+                ["Drag on the view", "Orbit the camera (pinch to zoom on touch)"],
+                ["Double-click", "Reset to the default camera"],
+                ["Page Up / Page Down", "Zoom camera in / out"],
+                ["[ / ]", "Smaller / larger gauges"],
+                ["G", "Cycle gauge size"],
+                ["C", "Cycle chase / cockpit / wing / front"],
+                ["P", "Pause / resume"],
+                ["O", "Autopilot on / off (set a destination first)"],
+                ["M", "Mute / unmute sound"],
+              ]
+            : isHoverCapable(aircraft)
             ? [
                 ["R / +", "Collective up: climb (hold to raise)"],
                 ["F / −", "Collective down: descend / land"],
@@ -2218,8 +2308,6 @@ function App() {
                 ["Q / E", "Pedals: yaw left / right (tail rotor)"],
                 ["I", "Invert pitch keys"],
                 ["Scroll wheel", "Zoom camera in / out"],
-            ["Drag on the view", "Orbit the camera (pinch to zoom on touch)"],
-            ["Double-click", "Reset to the default camera"],
                 ["Drag on the view", "Orbit the camera (pinch to zoom on touch)"],
                 ["Double-click", "Reset to the default camera"],
                 ["Page Up / Page Down", "Zoom camera in / out"],
@@ -2253,7 +2341,16 @@ function App() {
               <span>{t}</span>
             </div>
           ))}
-          {isHoverCapable(aircraft) ? (
+          {aircraft.engine === "saucer" ? (
+            <p>
+              The saucer hovers when you let go of the controls. R, +, or Space
+              climbs hard; F or − descends hard. Point the nose with W/S/A/D to
+              fly that way, including steep climbs with the nose up. Q and E yaw.
+              B turns on Warp (Mach 1.2); press again for Mach 4, and again to
+              cancel. Crossing Mach 1 makes a sonic boom. It does not stall, and
+              warp works at any altitude, including space.
+            </p>
+          ) : isHoverCapable(aircraft) ? (
             <p>
               Collective sets lift: at about {Math.round(HOVER_COLLECTIVE * 100)}%
               the {aircraft.name} hovers and holds altitude (press H to trim).

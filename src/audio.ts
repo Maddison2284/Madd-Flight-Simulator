@@ -13,6 +13,9 @@ export type FlightAudioState = {
   engine: EngineKind;
   /** Fighter afterburner lit (louder, brighter roar). */
   afterburner?: boolean;
+  /** 3-D speed in m/s, used for the sonic boom. */
+  speedMs?: number;
+  warp?: 0 | 1 | 2;
 };
 
 function readMuted(): boolean {
@@ -65,6 +68,7 @@ export class FlightAudio {
   private slapDepth: GainNode | null = null;
   private started = false;
   private wasCrashed = false;
+  private lastMach = 0;
   private engineKind: EngineKind | null = null;
   muted = readMuted();
   volume = readVolume();
@@ -238,6 +242,25 @@ export class FlightAudio {
     src.stop(ctx.currentTime + duration);
   }
 
+  /** Low thump + noise burst when the saucer (or anything) crosses Mach 1. */
+  boom() {
+    if (!this.started || !this.ctx || !this.master || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(90, t);
+    osc.frequency.exponentialRampToValueAtTime(28, t + 0.55);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.9, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+    osc.connect(og);
+    og.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.7);
+    this.burst(0.45, 0.8);
+  }
+
   update(state: FlightAudioState) {
     if (!this.started || !this.ctx) return;
     const t = this.ctx.currentTime;
@@ -248,7 +271,10 @@ export class FlightAudio {
       const base =
         state.engine === "rotor" ? 0.22 : state.engine === "prop" ? 0.2 : state.engine === "saucer" ? 0.12 : 0.16;
       const ab = flying && state.afterburner ? 1.7 : 1;
-      const level = flying ? base * ab * (0.25 + throttle * 0.85 + (state.boost ? 0.15 : 0)) : 0;
+      const warp = state.warp ?? (state.boost && state.engine === "saucer" ? 1 : 0);
+      const level = flying
+        ? base * ab * (0.25 + throttle * 0.85 + (state.boost ? 0.15 : 0) + (warp ? 0.2 + warp * 0.15 : 0))
+        : 0;
       this.engineGain.gain.setTargetAtTime(level, t, 0.08);
     }
     if (this.engineFilter) {
@@ -302,6 +328,10 @@ export class FlightAudio {
     }
     if (state.crashed && !this.wasCrashed) this.burst(0.55, 0.95);
     this.wasCrashed = state.crashed;
+    const speedMs = state.speedMs ?? state.speed;
+    const mach = flying ? speedMs / 340.29 : 0;
+    if (flying && this.lastMach < 1 && mach >= 1) this.boom();
+    this.lastMach = mach;
     this.engineKind = state.engine;
   }
 
