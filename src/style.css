@@ -2812,127 +2812,427 @@ footer a,
   text-overflow: ellipsis;
 }
 
-/* In-flight desktop chrome hugs the screen edges (Dustin, Nov 2026):
- * row 1 = brand · flight buttons · status/account, row 2 = heading tape +
- * the right-hand Touch / Boost / Gear stack; at the bottom a thin
- * transparent strip carries the Cesium / Google attribution (left, never
- * covered) and the footer links (right), with the instrument panel sitting
- * directly on top of it. */
-@media (min-width: 801px) and (min-height: 551px) {
-  html.in-flight header {
+/* ---- In-flight HUD layout (desktop / tablet, i.e. everything except the
+ * phone touch layout). Edges: header row at the top, instruments on the
+ * bottom credit strip. Generated for touch off (any size) and touch on
+ * (tablet / desktop sizes) — keep the two copies identical. ---- */
+.hud-top,
+.hud-right {
+  display: contents;
+}
+
+html.in-flight main[data-touch="false"] header {
+  min-height: 0;
+  height: auto;
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: calc(5px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 5px max(12px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(#07131dd9, #07131d00);
+}
+html.in-flight main[data-touch="false"] .brand-logo {
+  height: 28px;
+}
+html.in-flight main[data-touch="false"] .brand-tag {
+  display: none;
+}
+/* Status · Admin · plan · avatar · Credits · Controls: one tight row. */
+html.in-flight main[data-touch="false"] .top-right {
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+html.in-flight main[data-touch="false"] .top-right button,
+html.in-flight main[data-touch="false"] .top-right a,
+html.in-flight main[data-touch="false"] .top-right .plan-chip,
+html.in-flight main[data-touch="false"] .top-right .trial-chip,
+html.in-flight main[data-touch="false"] .top-right .admin-link {
+  min-height: 34px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+html.in-flight main[data-touch="false"] .top-right .cl-rootBox,
+html.in-flight main[data-touch="false"] .top-right .cl-userButtonBox,
+html.in-flight main[data-touch="false"] .top-right .cl-userButton-root {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+}
+/* Row 2 = grid under the measured header: buttons | heading | stack. */
+html.in-flight main[data-touch="false"] .hud-top {
+  display: grid;
+  position: absolute;
+  top: var(--chrome-top, 44px);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  grid-template-columns: minmax(min-content, 1fr) auto minmax(min-content, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  pointer-events: none;
+  z-index: 5;
+}
+html.in-flight main[data-touch="false"] .hud-top > *,
+html.in-flight main[data-touch="false"] .hud-right > * {
+  pointer-events: auto;
+}
+html.in-flight main[data-touch="false"] .flight-actions {
+  position: static;
+  grid-column: 1;
+  justify-self: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: none;
+  height: auto;
+  top: auto;
+  left: auto;
+  right: auto;
+}
+html.in-flight main[data-touch="false"] .flight-actions button,
+html.in-flight main[data-touch="false"] .flight-actions select {
+  min-height: 34px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+html.in-flight main[data-touch="false"] .heading-strip,
+html.in-flight main[data-touch="false"] .heading-strip[data-nav="on"] {
+  position: static;
+  grid-column: 2;
+  transform: none;
+  margin: 0;
+  top: auto;
+  left: auto;
+  right: auto;
+  padding: 4px 16px 5px;
+  font-size: 24px;
+}
+html.in-flight main[data-touch="false"] .hud-right {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+html.in-flight main[data-touch="false"] .touch-toggle,
+html.in-flight main[data-touch="false"] .desktop-boost,
+html.in-flight main[data-touch="false"] .desktop-boost.desktop-gear,
+html.in-flight main[data-touch="false"] .desktop-boost.desktop-jump {
+  position: static;
+  top: auto;
+  right: auto;
+  min-height: 34px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+/* Wide screens: the flight buttons join the brand row when they fit
+ * (measured in layoutFlightHud → data-actions-inline). */
+html.in-flight main[data-touch="false"][data-actions-inline="1"] .flight-actions {
+  position: absolute;
+  top: calc(5px + env(safe-area-inset-top, 0px) - var(--chrome-top, 44px));
+  left: calc(var(--brand-right, 190px) - max(12px, env(safe-area-inset-left, 0px)) + 14px);
+  flex-wrap: nowrap;
+}
+/* Bottom: a thin transparent strip holds the Cesium / Google credit (left,
+ * never covered) and the footer links (right); the instrument panel sits
+ * directly on it in every exterior view. */
+html.in-flight main[data-touch="false"] footer {
+  min-height: 0;
+  padding: 0 max(8px, env(safe-area-inset-right, 0px)) calc(2px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+  background: none;
+  border-top: 0;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  pointer-events: none;
+}
+html.in-flight main[data-touch="false"] footer > span,
+html.in-flight main[data-touch="false"] footer .muted,
+html.in-flight main[data-touch="false"] footer .mute-toggle {
+  display: none;
+}
+html.in-flight main[data-touch="false"] footer > div {
+  pointer-events: auto;
+  flex-wrap: nowrap;
+  gap: 2px 4px;
+  background: #0b1822d9;
+  border: 1px solid #ffffff16;
+  border-radius: 6px;
+  padding: 0 6px;
+}
+html.in-flight main[data-touch="false"] footer button,
+html.in-flight main[data-touch="false"] footer a,
+html.in-flight main[data-touch="false"] footer .legal-link {
+  min-height: 24px;
+  padding: 2px 6px;
+}
+html.in-flight main[data-touch="false"] .cesium-viewer-bottom {
+  bottom: calc(3px + env(safe-area-inset-bottom, 0px)) !important;
+  left: max(10px, env(safe-area-inset-left, 0px)) !important;
+  right: auto !important;
+  max-width: 48%;
+}
+html.in-flight main[data-touch="false"] .instruments {
+  bottom: calc(34px + env(safe-area-inset-bottom, 0px));
+  padding-top: 12px;
+  padding-bottom: 12px;
+  max-width: calc(100vw - 16px);
+}
+html.in-flight main[data-touch="false"] .flight-hint {
+  bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 601px) and (min-height: 501px), (min-width: 1101px) {
+
+  html.in-flight main[data-touch="true"] header {
     min-height: 0;
     height: auto;
+    flex-wrap: nowrap;
+    gap: 10px;
     padding: calc(5px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 5px max(12px, env(safe-area-inset-left, 0px));
     background: linear-gradient(#07131dd9, #07131d00);
   }
-  html.in-flight .brand-logo {
+  html.in-flight main[data-touch="true"] .brand-logo {
     height: 28px;
   }
-  html.in-flight .brand-tag {
+  html.in-flight main[data-touch="true"] .brand-tag {
     display: none;
   }
-  html.in-flight .top-right {
-    gap: 8px;
-  }
-  html.in-flight .top-right button,
-  html.in-flight .top-right a,
-  html.in-flight .top-right .plan-chip,
-  html.in-flight .top-right .trial-chip,
-  html.in-flight .top-right .admin-link {
-    min-height: 34px;
-    padding-top: 6px;
-    padding-bottom: 6px;
-  }
-  html.in-flight .flight-actions {
-    top: calc(46px + env(safe-area-inset-top, 0px));
-    left: max(12px, env(safe-area-inset-left, 0px));
+  /* Status · Admin · plan · avatar · Credits · Controls: one tight row. */
+  html.in-flight main[data-touch="true"] .top-right {
+    flex-wrap: nowrap;
     gap: 6px;
-    /* Clear of the centred heading tape (~292 px wide). */
-    max-width: calc(50% - 172px);
+    min-width: 0;
+    white-space: nowrap;
   }
-  html.in-flight .flight-actions button,
-  html.in-flight .flight-actions select {
+  html.in-flight main[data-touch="true"] .top-right button,
+  html.in-flight main[data-touch="true"] .top-right a,
+  html.in-flight main[data-touch="true"] .top-right .plan-chip,
+  html.in-flight main[data-touch="true"] .top-right .trial-chip,
+  html.in-flight main[data-touch="true"] .top-right .admin-link {
     min-height: 34px;
     padding-top: 6px;
     padding-bottom: 6px;
   }
-  html.in-flight .heading-strip,
-  html.in-flight .heading-strip[data-nav="on"] {
-    top: calc(44px + env(safe-area-inset-top, 0px));
+  html.in-flight main[data-touch="true"] .top-right .cl-rootBox,
+  html.in-flight main[data-touch="true"] .top-right .cl-userButtonBox,
+  html.in-flight main[data-touch="true"] .top-right .cl-userButton-root {
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+  }
+  /* Row 2 = grid under the measured header: buttons | heading | stack. */
+  html.in-flight main[data-touch="true"] .hud-top {
+    display: grid;
+    position: absolute;
+    top: var(--chrome-top, 44px);
+    left: max(12px, env(safe-area-inset-left, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
+    grid-template-columns: minmax(min-content, 1fr) auto minmax(min-content, 1fr);
+    column-gap: 10px;
+    align-items: start;
+    pointer-events: none;
+    z-index: 5;
+  }
+  html.in-flight main[data-touch="true"] .hud-top > *,
+  html.in-flight main[data-touch="true"] .hud-right > * {
+    pointer-events: auto;
+  }
+  html.in-flight main[data-touch="true"] .flight-actions {
+    position: static;
+    grid-column: 1;
+    justify-self: start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: none;
+    height: auto;
+    top: auto;
+    left: auto;
+    right: auto;
+  }
+  html.in-flight main[data-touch="true"] .flight-actions button,
+  html.in-flight main[data-touch="true"] .flight-actions select {
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  html.in-flight main[data-touch="true"] .heading-strip,
+  html.in-flight main[data-touch="true"] .heading-strip[data-nav="on"] {
+    position: static;
+    grid-column: 2;
+    transform: none;
+    margin: 0;
+    top: auto;
+    left: auto;
+    right: auto;
     padding: 4px 16px 5px;
     font-size: 24px;
   }
-  html.in-flight .touch-toggle,
-  html.in-flight .desktop-boost {
-    right: max(12px, env(safe-area-inset-right, 0px));
+  html.in-flight main[data-touch="true"] .hud-right {
+    grid-column: 3;
+    justify-self: end;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    pointer-events: none;
+  }
+  html.in-flight main[data-touch="true"] .touch-toggle,
+  html.in-flight main[data-touch="true"] .desktop-boost,
+  html.in-flight main[data-touch="true"] .desktop-boost.desktop-gear,
+  html.in-flight main[data-touch="true"] .desktop-boost.desktop-jump {
+    position: static;
+    top: auto;
+    right: auto;
     min-height: 34px;
     padding-top: 6px;
     padding-bottom: 6px;
   }
-  html.in-flight .touch-toggle {
-    top: calc(46px + env(safe-area-inset-top, 0px));
+  /* Wide screens: the flight buttons join the brand row when they fit
+   * (measured in layoutFlightHud → data-actions-inline). */
+  html.in-flight main[data-touch="true"][data-actions-inline="1"] .flight-actions {
+    position: absolute;
+    top: calc(5px + env(safe-area-inset-top, 0px) - var(--chrome-top, 44px));
+    left: calc(var(--brand-right, 190px) - max(12px, env(safe-area-inset-left, 0px)) + 14px);
+    flex-wrap: nowrap;
   }
-  html.in-flight .desktop-boost {
-    top: calc(86px + env(safe-area-inset-top, 0px));
-  }
-  html.in-flight .desktop-boost.desktop-gear,
-  html.in-flight .desktop-boost.desktop-jump {
-    top: calc(126px + env(safe-area-inset-top, 0px));
-  }
-  html.in-flight footer {
+  /* Bottom: a thin transparent strip holds the Cesium / Google credit (left,
+   * never covered) and the footer links (right); the instrument panel sits
+   * directly on it in every exterior view. */
+  html.in-flight main[data-touch="true"] footer {
     min-height: 0;
     padding: 0 max(8px, env(safe-area-inset-right, 0px)) calc(2px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
     background: none;
     border-top: 0;
     justify-content: flex-end;
+    flex-wrap: nowrap;
     pointer-events: none;
   }
-  html.in-flight footer > span,
-  html.in-flight footer .muted {
+  html.in-flight main[data-touch="true"] footer > span,
+  html.in-flight main[data-touch="true"] footer .muted,
+  html.in-flight main[data-touch="true"] footer .mute-toggle {
     display: none;
   }
-  html.in-flight footer > div {
+  html.in-flight main[data-touch="true"] footer > div {
     pointer-events: auto;
+    flex-wrap: nowrap;
     gap: 2px 4px;
     background: #0b1822d9;
     border: 1px solid #ffffff16;
     border-radius: 6px;
     padding: 0 6px;
   }
-  html.in-flight footer button,
-  html.in-flight footer a,
-  html.in-flight footer .legal-link {
+  html.in-flight main[data-touch="true"] footer button,
+  html.in-flight main[data-touch="true"] footer a,
+  html.in-flight main[data-touch="true"] footer .legal-link {
     min-height: 24px;
     padding: 2px 6px;
   }
-  html.in-flight .cesium-viewer-bottom {
+  html.in-flight main[data-touch="true"] .cesium-viewer-bottom {
     bottom: calc(3px + env(safe-area-inset-bottom, 0px)) !important;
     left: max(10px, env(safe-area-inset-left, 0px)) !important;
     right: auto !important;
     max-width: 48%;
   }
-  html.in-flight .instruments {
+  html.in-flight main[data-touch="true"] .instruments {
     bottom: calc(34px + env(safe-area-inset-bottom, 0px));
     padding-top: 12px;
     padding-bottom: 12px;
+    max-width: calc(100vw - 16px);
   }
-  html.in-flight .flight-hint {
+  html.in-flight main[data-touch="true"] .flight-hint {
     bottom: calc(150px + env(safe-area-inset-bottom, 0px));
   }
+
+  /* Touch sticks on a tablet / desktop: panel right above them. */
+  html.in-flight main[data-touch="true"] .instruments {
+    bottom: max(calc(34px + env(safe-area-inset-bottom, 0px)), var(--touch-clear, 0px));
+  }
+  html.in-flight main[data-touch="true"] .touch-controls {
+    bottom: calc(34px + env(safe-area-inset-bottom, 0px));
+  }
 }
-/* Phones in flight: the touch sticks sat on the Cesium / Google credit;
- * keep them a credit-line above the bottom edge. */
+@media (max-width: 900px) {
+  html.in-flight main footer .legal-link {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  html.in-flight main[data-touch="false"] .cesium-viewer-bottom {
+    max-width: calc(100vw - 150px);
+    white-space: nowrap;
+  }
+}
+@media (min-width: 601px) and (max-width: 900px) {
+  html.in-flight main .cesium-viewer-bottom {
+    max-width: calc(100vw - 150px);
+    white-space: nowrap;
+  }
+}
+/* Very short desktop windows: shrink the panel so it stays under row 2. */
+@media (max-height: 460px) {
+  html.in-flight main[data-touch="false"] .instruments {
+    zoom: 0.72;
+    /* zoom scales offsets too: divide to keep the 36px bottom strip. */
+    bottom: calc((36px + env(safe-area-inset-bottom, 0px)) / 0.72);
+  }
+}
+@media (max-height: 380px) {
+  html.in-flight main[data-touch="false"] .instruments {
+    zoom: 0.6;
+    bottom: calc((36px + env(safe-area-inset-bottom, 0px)) / 0.6);
+  }
+}
+/* Cockpit view: only the cockpit's own gauges — no HUD panel, no compact
+ * phone HUD (the cockpit art carries airspeed / altitude / heading). */
+html.in-flight main[data-camera="cockpit"] .instruments,
+html.in-flight main[data-camera="cockpit"] .phone-hud {
+  display: none !important;
+}
+html.in-flight main[data-camera="cockpit"][data-touch="true"] .cockpit-art {
+  display: block;
+}
+/* Portrait phones: lift the cockpit panel above the sticks/throttle so its
+ * gauges aren't hidden under them; a shadow fills the strip below with panel
+ * dark. (Landscape: the sticks sit in the corners, gauges stay clear.) */
+@media (max-width: 600px) and (orientation: portrait) {
+  html.in-flight main[data-camera="cockpit"][data-touch="true"] .cockpit-art {
+    bottom: var(--touch-clear, 0px);
+    /* stop 32px short of the bottom: the Cesium / Google credit lives there */
+    box-shadow: 0 calc(var(--touch-clear, 0px) - 32px - env(safe-area-inset-bottom, 0px)) 0 0 #15191c;
+  }
+}
+/* Narrow desktop / tablet: the full instrument row must fit the width. */
+@media (max-width: 1000px) {
+  html.in-flight main .instruments {
+    gap: 10px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  html.in-flight main .instruments .instrument {
+    min-width: 0;
+  }
+}
+/* Phones: each top row stacks under the measured bottom of the one above
+ * (layoutFlightHud), so wrapped rows never overlap. */
 @media (max-width: 600px), (max-height: 500px) and (max-width: 1100px) {
-  html.in-flight [data-touch="true"] .touch-controls {
+  html.in-flight main[data-touch="true"] .phone-hud {
+    top: calc(max(var(--fa-b, 52px), var(--pa-b, 52px)) + 6px);
+  }
+  html.in-flight main[data-touch="true"] .rotate-hint {
+    top: calc(max(var(--fa-b, 52px), var(--pa-b, 52px), var(--ph-b, 120px)) + 6px);
+  }
+  html.in-flight main[data-touch="true"] .touch-controls {
     bottom: calc(30px + env(safe-area-inset-bottom, 0px));
   }
 }
-/* Wide screens: the flight buttons join the brand row (one top row). */
-@media (min-width: 1240px) and (min-height: 551px) {
-  html.in-flight .flight-actions {
-    top: calc(5px + env(safe-area-inset-top, 0px));
-    left: calc(max(12px, env(safe-area-inset-left, 0px)) + 196px);
-    max-width: none;
-    flex-wrap: nowrap;
+@media (max-width: 600px) and (orientation: portrait) {
+  html.in-flight main[data-touch="true"] .phone-actions {
+    top: calc(var(--fa-b, 52px) + 6px);
   }
+}
+/* Attribution always on top of the cockpit art (Google / Cesium terms). */
+html.in-flight .cesium-viewer-bottom {
+  z-index: 4;
 }

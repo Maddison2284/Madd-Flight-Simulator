@@ -97,6 +97,44 @@ const cameraLabels: Record<string, string> = {
 };
 const initial = spawn(37.807, -122.475, 900, 90, 120);
 const rotors = new RotorAnimator();
+
+/** In-flight HUD layout from measured boxes (no hard-coded tops):
+ * - data-actions-inline on <main>: the flight buttons fit in the header row
+ *   between the brand and the status/account cluster (wide desktops);
+ * - --touch-clear: room the on-screen touch controls take at the bottom, so
+ *   the instrument panel sits right above them;
+ * - --fa-b / --pa-b / --ph-b: bottoms of the phone button rows and compact
+ *   HUD, so each phone row stacks under the one above whatever it wraps to. */
+function layoutFlightHud(root: HTMLElement) {
+  const main = document.querySelector("main");
+  if (!main) return;
+  const vis = (el: Element | null) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).display !== "none" ? r : null;
+  };
+  const brand = vis(main.querySelector("header .brand"));
+  const tr = vis(main.querySelector("header .top-right"));
+  const fa = main.querySelector(".flight-actions");
+  if (fa && brand && tr) {
+    const kids = [...fa.children].filter((c) => vis(c));
+    const need = kids.reduce((w, c) => w + (c as HTMLElement).offsetWidth, 0) + 6 * Math.max(0, kids.length - 1);
+    const avail = tr.left - brand.right - 24;
+    const inline = avail >= need ? "1" : "0";
+    if (main.dataset.actionsInline !== inline) main.dataset.actionsInline = inline;
+    root.style.setProperty("--brand-right", `${Math.round(brand.right)}px`);
+  } else if (main.dataset.actionsInline !== "0") main.dataset.actionsInline = "0";
+  const tc = vis(main.querySelector(".touch-controls"));
+  root.style.setProperty("--touch-clear", tc ? `${Math.round(window.innerHeight - tc.top + 8)}px` : "0px");
+  const bottom = (sel: string, name: string) => {
+    const r = vis(main.querySelector(sel));
+    root.style.setProperty(name, r ? `${Math.round(r.bottom)}px` : "0px");
+  };
+  // Sequential: each var moves the next row, so read after writing.
+  bottom(".flight-actions", "--fa-b");
+  bottom(".phone-actions", "--pa-b");
+  bottom(".phone-hud", "--ph-b");
+}
 const gearAnim = new GearAnimator();
 /** Shortest signed angle from a to b (radians). */
 const angleDelta = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
@@ -1664,6 +1702,7 @@ function App() {
         const r = footer.getBoundingClientRect();
         root.style.setProperty("--chrome-bottom", `${Math.round(window.innerHeight - r.top)}px`);
       }
+      layoutFlightHud(root);
     };
     layout();
     const ro = new ResizeObserver(layout);
@@ -1671,6 +1710,10 @@ function App() {
     const footer = document.querySelector("main > footer");
     if (header) ro.observe(header);
     if (footer) ro.observe(footer);
+    for (const sel of [".top-right", "header .brand", ".flight-actions", ".phone-actions", ".phone-hud", ".touch-controls"]) {
+      const el = document.querySelector(sel);
+      if (el) ro.observe(el);
+    }
     window.addEventListener("resize", layout);
     window.addEventListener("orientationchange", layout);
     return () => {
@@ -1678,7 +1721,7 @@ function App() {
       window.removeEventListener("resize", layout);
       window.removeEventListener("orientationchange", layout);
     };
-  }, [flying, help, credits, paywall, billingOpen, authOpen]);
+  }, [flying, help, credits, paywall, billingOpen, authOpen, touchVisible, cam]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement).matches("input,select,textarea,button"))
@@ -2202,6 +2245,10 @@ function App() {
         </>
       ) : (
         <>
+          {/* Desktop / tablet: a grid under the header (flight buttons · heading
+           * tape · Touch/Boost/Gear stack). Phones: display: contents, so the
+           * children keep their own absolute phone positions. */}
+          <div className="hud-top">
           <div className="flight-actions">
             <button aria-label="Flight planner" onClick={returnMap}>
               <span className="planner-full">← Flight planner</span>
@@ -2261,6 +2308,64 @@ function App() {
               {soundLabel} <kbd>M</kbd>
             </button>
           </div>
+          <div
+            className="heading-strip"
+            data-nav={destination ? "on" : "off"}
+            data-ap={apMode}
+          >
+            <div className="hdg-tape" aria-hidden="true">
+              {Array.from({ length: 36 }, (_, i) => {
+                const deg = i * 10;
+                const offset = ((deg - f.heading + 540) % 360) - 180;
+                if (Math.abs(offset) > 100) return null;
+                const major = deg % 30 === 0;
+                return (
+                  <span
+                    key={deg}
+                    className={major ? "hdg-tick major" : "hdg-tick"}
+                    style={{ left: `calc(50% + ${offset * 3}px)` }}
+                  >
+                    {major
+                      ? deg === 0
+                        ? "N"
+                        : deg === 90
+                          ? "E"
+                          : deg === 180
+                            ? "S"
+                            : deg === 270
+                              ? "W"
+                              : String(deg).padStart(3, "0")
+                      : ""}
+                  </span>
+                );
+              })}
+              {nav && (
+                <span
+                  className="hdg-bug"
+                  style={{
+                    left: `calc(50% + ${Math.max(-90, Math.min(90, nav.bugOffsetDeg)) * 3}px)`,
+                  }}
+                />
+              )}
+              <span className="hdg-caret" />
+            </div>
+            <div className="hdg-readout">
+              {String(Math.round(f.heading) % 360).padStart(3, "0")}°
+              <small>HEADING</small>
+            </div>
+            {nav && destination && (
+              <div className="nav-readout">
+                <span>
+                  BRG {String(Math.round(nav.bearing) % 360).padStart(3, "0")}°
+                </span>
+                <span>{formatDistanceUnits(nav.distanceMeters, units)}</span>
+                <span>
+                  {nav.holding ? "HOLD" : `ETA ${formatEta(nav.etaSec)}`}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="hud-right">
           <button
             className="touch-toggle"
             aria-pressed={touchVisible}
@@ -2298,6 +2403,8 @@ function App() {
               Jump 1 mi · J
             </button>
           )}
+          </div>
+          </div>
           <div className="phone-actions">
             <button
               aria-label={aircraft.engine === "saucer" ? "Warp" : "Speed boost"}
@@ -2396,63 +2503,6 @@ function App() {
             <button className="rotate-close" aria-label="Dismiss rotate hint" onClick={() => setRotateHidden(true)}>
               ✕
             </button>
-          </div>
-          <div
-            className="heading-strip"
-            data-nav={destination ? "on" : "off"}
-            data-ap={apMode}
-          >
-            <div className="hdg-tape" aria-hidden="true">
-              {Array.from({ length: 36 }, (_, i) => {
-                const deg = i * 10;
-                const offset = ((deg - f.heading + 540) % 360) - 180;
-                if (Math.abs(offset) > 100) return null;
-                const major = deg % 30 === 0;
-                return (
-                  <span
-                    key={deg}
-                    className={major ? "hdg-tick major" : "hdg-tick"}
-                    style={{ left: `calc(50% + ${offset * 3}px)` }}
-                  >
-                    {major
-                      ? deg === 0
-                        ? "N"
-                        : deg === 90
-                          ? "E"
-                          : deg === 180
-                            ? "S"
-                            : deg === 270
-                              ? "W"
-                              : String(deg).padStart(3, "0")
-                      : ""}
-                  </span>
-                );
-              })}
-              {nav && (
-                <span
-                  className="hdg-bug"
-                  style={{
-                    left: `calc(50% + ${Math.max(-90, Math.min(90, nav.bugOffsetDeg)) * 3}px)`,
-                  }}
-                />
-              )}
-              <span className="hdg-caret" />
-            </div>
-            <div className="hdg-readout">
-              {String(Math.round(f.heading) % 360).padStart(3, "0")}°
-              <small>HEADING</small>
-            </div>
-            {nav && destination && (
-              <div className="nav-readout">
-                <span>
-                  BRG {String(Math.round(nav.bearing) % 360).padStart(3, "0")}°
-                </span>
-                <span>{formatDistanceUnits(nav.distanceMeters, units)}</span>
-                <span>
-                  {nav.holding ? "HOLD" : `ETA ${formatEta(nav.etaSec)}`}
-                </span>
-              </div>
-            )}
           </div>
           <div className="reticle">
             ┈┈ <span>⌖</span> ┈┈
