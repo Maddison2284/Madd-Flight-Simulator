@@ -86,7 +86,7 @@ function silentWavDataUri(): string {
  * jump zap, held Jump every ~0.3 s) reuse them instead of allocating and
  * filling a fresh buffer each time. */
 const noiseCache = new WeakMap<BaseAudioContext, Map<number, AudioBuffer>>();
-function noiseBuffer(ctx: AudioContext, seconds = 2): AudioBuffer {
+function noiseBuffer(ctx: BaseAudioContext, seconds = 2): AudioBuffer {
   let m = noiseCache.get(ctx);
   if (!m) noiseCache.set(ctx, (m = new Map()));
   const hit = m.get(seconds);
@@ -105,16 +105,56 @@ function disposeOnEnd(src: AudioScheduledSourceNode, ...nodes: AudioNode[]) {
     }
   };
 }
-function makeNoise(ctx: AudioContext, seconds: number): AudioBuffer {
-  const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+/** Pink noise (Paul Kellet's filter: −3 dB/octave) at the context's own
+ * sample rate, normalised to ±0.9, with the last 40 ms crossfaded into the
+ * start so a looped buffer has no click. Plain white noise (the 2026-11-11
+ * build) put most of its energy at 2-20 kHz, which is the "static" players
+ * heard under every engine. */
+export function fillPinkNoise(data: Float32Array, sampleRate: number, rand: () => number = Math.random) {
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < data.length; i++) {
+    const w = rand() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179;
+    b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.969 * b2 + w * 0.153852;
+    b3 = 0.8665 * b3 + w * 0.3104856;
+    b4 = 0.55 * b4 + w * 0.5329522;
+    b5 = -0.7616 * b5 - w * 0.016898;
+    data[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362;
+    b6 = w * 0.115926;
+  }
+  // Remove DC, normalise.
+  let mean = 0;
+  for (let i = 0; i < data.length; i++) mean += data[i];
+  mean /= data.length || 1;
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs((data[i] -= mean)));
+  const k = peak > 0 ? 0.9 / peak : 1;
+  for (let i = 0; i < data.length; i++) data[i] *= k;
+  // Seamless loop: equal-power crossfade of the tail into the head.
+  const fade = Math.min(Math.floor(sampleRate * 0.04), Math.floor(data.length / 4));
+  const n = data.length;
+  for (let i = 0; i < fade; i++) {
+    const a = i / fade;
+    data[i] = data[i] * Math.sin((a * Math.PI) / 2) + data[n - fade + i] * Math.cos((a * Math.PI) / 2);
+  }
+  return n - fade; // usable loop length (samples)
+}
+function makeNoise(ctx: BaseAudioContext, seconds: number): AudioBuffer {
+  const full = Math.floor(ctx.sampleRate * seconds);
+  const scratch = new Float32Array(full);
+  const len = fillPinkNoise(scratch, ctx.sampleRate);
+  const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+  buffer.getChannelData(0).set(scratch.subarray(0, len));
   return buffer;
 }
 
 export class FlightAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** Mix bus (−6 dB) feeding the compressor; all sounds connect here. */
+  private bus: GainNode | null = null;
+  private noiseLP: BiquadFilterNode | null = null;
   private engineGain: GainNode | null = null;
   private windGain: GainNode | null = null;
   private stallGain: GainNode | null = null;
@@ -309,7 +349,7 @@ export class FlightAudio {
     g.gain.exponentialRampToValueAtTime(0.35, t + 0.015);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
     osc.connect(g);
-    g.connect(this.master);
+    g.connect(this.bus ?? this.master);
     osc.start(t);
     osc.stop(t + 0.18);
   }
@@ -329,7 +369,7 @@ export class FlightAudio {
       g.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
       osc.connect(g);
-      g.connect(this.master);
+      g.connect(this.bus ?? this.master);
       osc.onended = () => {
         osc.disconnect();
         g.disconnect();
@@ -346,14 +386,14 @@ export class FlightAudio {
     for (const dt of [0.01, 0.22]) {
       const t = ctx.currentTime + dt;
       const osc = ctx.createOscillator();
-      osc.type = "square";
+      osc.type = "triangle";
       osc.frequency.setValueAtTime(1180, t);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
       osc.connect(g);
-      g.connect(this.master);
+      g.connect(this.bus ?? this.master);
       osc.onended = () => {
         osc.disconnect();
         g.disconnect();
@@ -389,8 +429,25 @@ export class FlightAudio {
   private buildGraph() {
     if (this.started || !this.ctx) return;
     const ctx = this.ctx;
+    // Mix bus → −6 dB headroom → limiter-style compressor → gentle 9 kHz
+    // shelf cut → master volume. Every sound connects to `bus`.
+    const bus = ctx.createGain();
+    bus.gain.value = 0.5;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -10;
+    comp.knee.value = 6;
+    comp.ratio.value = 12;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.2;
+    const shelf = ctx.createBiquadFilter();
+    shelf.type = "highshelf";
+    shelf.frequency.value = 9000;
+    shelf.gain.value = -9;
+    bus.connect(comp);
+    comp.connect(shelf);
     const master = ctx.createGain();
     master.gain.value = this.muted ? 0 : this.volume;
+    shelf.connect(master);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
     master.connect(analyser);
@@ -407,9 +464,17 @@ export class FlightAudio {
     noise.buffer = noiseBuffer(ctx);
     noise.loop = true;
     const noiseGain = ctx.createGain();
-    noiseGain.gain.value = 0.35;
-    noise.connect(noiseGain);
+    noiseGain.gain.value = 0.5;
+    // Noise gets its own lowpass in front of the engine filter (24 dB/oct
+    // total) so it reads as rumble/roar rather than hiss.
+    const noiseLP = ctx.createBiquadFilter();
+    noiseLP.type = "lowpass";
+    noiseLP.frequency.value = 600;
+    noiseLP.Q.value = 0.5;
+    noise.connect(noiseLP);
+    noiseLP.connect(noiseGain);
     noiseGain.connect(engineFilter);
+    this.noiseLP = noiseLP;
     const osc = ctx.createOscillator();
     osc.type = "sawtooth";
     osc.frequency.value = 80;
@@ -418,10 +483,10 @@ export class FlightAudio {
     osc.connect(oscGain);
     oscGain.connect(engineFilter);
     const osc2 = ctx.createOscillator();
-    osc2.type = "square";
+    osc2.type = "triangle";
     osc2.frequency.value = 40;
     const osc2Gain = ctx.createGain();
-    osc2Gain.gain.value = 0.06;
+    osc2Gain.gain.value = 0.12;
     osc2.connect(osc2Gain);
     osc2Gain.connect(engineFilter);
     // Rotor "blade slap": an LFO at blade-pass frequency modulating the
@@ -437,28 +502,40 @@ export class FlightAudio {
     slapDepth.connect(pulse.gain);
     engineFilter.connect(pulse);
     pulse.connect(engineGain);
-    engineGain.connect(master);
+    engineGain.connect(bus);
 
     const windGain = ctx.createGain();
     windGain.gain.value = 0;
+    // Wind: pink noise, bandpass + lowpass (was a wide bandpass on white
+    // noise that let 2-8 kHz hiss through).
     const windFilter = ctx.createBiquadFilter();
     windFilter.type = "bandpass";
-    windFilter.frequency.value = 800;
-    windFilter.Q.value = 0.6;
+    windFilter.frequency.value = 520;
+    windFilter.Q.value = 0.9;
+    const windLP = ctx.createBiquadFilter();
+    windLP.type = "lowpass";
+    windLP.frequency.value = 1400;
+    windLP.Q.value = 0.5;
     const wind = ctx.createBufferSource();
     wind.buffer = noiseBuffer(ctx, 3);
     wind.loop = true;
     wind.connect(windFilter);
-    windFilter.connect(windGain);
-    windGain.connect(master);
+    windFilter.connect(windLP);
+    windLP.connect(windGain);
+    windGain.connect(bus);
 
     const stallGain = ctx.createGain();
     stallGain.gain.value = 0;
     const stallOsc = ctx.createOscillator();
-    stallOsc.type = "square";
+    // Stall horn: triangle through a lowpass (a raw 1.7 kHz square aliased).
+    stallOsc.type = "triangle";
     stallOsc.frequency.value = 1700;
-    stallOsc.connect(stallGain);
-    stallGain.connect(master);
+    const stallLP = ctx.createBiquadFilter();
+    stallLP.type = "lowpass";
+    stallLP.frequency.value = 3200;
+    stallOsc.connect(stallLP);
+    stallLP.connect(stallGain);
+    stallGain.connect(bus);
 
     noise.start();
     wind.start();
@@ -470,6 +547,7 @@ export class FlightAudio {
     this.slapDepth = slapDepth;
 
     this.master = master;
+    this.bus = bus;
     this.engineGain = engineGain;
     this.engineFilter = engineFilter;
     this.engineOsc = osc;
@@ -490,11 +568,11 @@ export class FlightAudio {
     filter.type = "lowpass";
     filter.frequency.value = 400;
     const gain = ctx.createGain();
-    gain.gain.value = volume;
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(this.master);
+    gain.connect(this.bus ?? this.master);
     disposeOnEnd(src, filter, gain);
     src.start();
     src.stop(ctx.currentTime + duration);
@@ -507,7 +585,7 @@ export class FlightAudio {
     const t = ctx.currentTime;
     const dur = big ? 0.42 : 0.26;
     const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
+    osc.type = "triangle";
     osc.frequency.setValueAtTime(big ? 1800 : 1400, t);
     osc.frequency.exponentialRampToValueAtTime(90, t + dur);
     const og = ctx.createGain();
@@ -515,7 +593,7 @@ export class FlightAudio {
     og.gain.exponentialRampToValueAtTime(0.28, t + 0.02);
     og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(og);
-    og.connect(this.master);
+    og.connect(this.bus ?? this.master);
     disposeOnEnd(osc, og);
     osc.start(t);
     osc.stop(t + dur + 0.02);
@@ -524,14 +602,14 @@ export class FlightAudio {
     const bp = ctx.createBiquadFilter();
     bp.type = "bandpass";
     bp.Q.value = 1.2;
-    bp.frequency.setValueAtTime(4000, t);
+    bp.frequency.setValueAtTime(2600, t);
     bp.frequency.exponentialRampToValueAtTime(300, t + dur);
     const ng = ctx.createGain();
     ng.gain.setValueAtTime(0.5, t);
     ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(bp);
     bp.connect(ng);
-    ng.connect(this.master);
+    ng.connect(this.bus ?? this.master);
     disposeOnEnd(src, bp, ng);
     src.start(t);
     src.stop(t + dur);
@@ -550,7 +628,7 @@ export class FlightAudio {
     og.gain.setValueAtTime(0.9, t);
     og.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
     osc.connect(og);
-    og.connect(this.master);
+    og.connect(this.bus ?? this.master);
     disposeOnEnd(osc, og);
     osc.start(t);
     osc.stop(t + 0.7);
@@ -565,7 +643,10 @@ export class FlightAudio {
     const speed = flying ? state.speed : 0;
     if (this.engineGain) {
       const base =
-        state.engine === "rotor" ? 0.22 : state.engine === "prop" ? 0.2 : state.engine === "saucer" ? 0.12 : 0.16;
+        // ×1.35 vs the 2026-11-11 mix: the hiss removed from the noise layers
+        // took ~3 dB of loudness with it, and the −6 dB bus + compressor
+        // keep the peaks in check.
+        (state.engine === "rotor" ? 0.22 : state.engine === "prop" ? 0.2 : state.engine === "saucer" ? 0.12 : 0.16) * 1.35;
       const ab = flying && state.afterburner ? 1.7 : 1;
       const warp = state.warp ?? (state.boost && state.engine === "saucer" ? 1 : 0);
       const level = flying
@@ -581,8 +662,9 @@ export class FlightAudio {
             ? 350 + throttle * 600
             : state.engine === "saucer"
               ? 900 + throttle * 900
-              : 700 + throttle * 1800 + (state.afterburner ? 1400 : 0);
+              : 700 + throttle * 1500 + (state.afterburner ? 900 : 0);
       this.engineFilter.frequency.setTargetAtTime(cutoff, t, 0.1);
+      this.noiseLP?.frequency.setTargetAtTime(Math.max(250, cutoff * 0.55), t, 0.1);
     }
     if (this.engineOsc) {
       const freq =
@@ -613,7 +695,7 @@ export class FlightAudio {
       this.slapOsc.frequency.setTargetAtTime(rotor ? 12 + throttle * 2 : 3.5, t, 0.2);
     }
     if (this.windGain) {
-      const wind = flying ? Math.min(0.28, (speed / 280) * 0.28) : 0;
+      const wind = flying ? Math.min(0.32, (speed / 280) * 0.32) : 0;
       this.windGain.gain.setTargetAtTime(wind, t, 0.12);
     }
     if (this.stallGain && this.stallOsc) {
