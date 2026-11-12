@@ -142,7 +142,9 @@ export function TouchControls({
             if (pointer.current !== null) return;
             e.preventDefault();
             pointer.current = e.pointerId;
-            e.currentTarget.setPointerCapture(e.pointerId);
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {}
             move(e);
           }}
           onPointerMove={move}

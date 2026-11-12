@@ -13,6 +13,7 @@ import {
   BIG_JUMP_M,
   JUMP_GROUND_MARGIN_M,
   machNumber,
+  saucerVertScale,
 } from "../src/heli.ts";
 import { type Flight } from "../src/physics.ts";
 
@@ -71,7 +72,7 @@ test("hands-off after a climb holds altitude", () => {
   const peaked = f.alt;
   f = run(f, [], 8);
   assert.ok(Math.abs(f.vs) < 0.8, `settled vs ${f.vs}`);
-  assert.ok(f.alt >= peaked - 2 && f.alt <= peaked + 25, `held (${f.alt} vs ${peaked})`);
+  assert.ok(f.alt >= peaked - 2 && f.alt <= peaked + 60, `held (${f.alt} vs ${peaked})`);
 });
 
 test("forward comes from throttle / arrows; A/D bank and turn; Q/E yaw", () => {
@@ -188,4 +189,56 @@ test("warp never crashes into the ground (skims the warp floor)", () => {
   f = run(f, ["s"], 6, 250);
   assert.equal(f.crashed, false);
   assert.ok(f.alt >= 250 + WARP_FLOOR_M, `alt ${f.alt}`);
+});
+
+test("holding UP / DOWN for 2 s moves > 1,000 ft (strong, immediate vertical)", () => {
+  const ft = 3.28084;
+  for (const warp of [0, 1, 2, 3] as const) {
+    const base = { ...spawnAircraft(saucer, 37, -122, 1500, 90, 0, false, false), warp };
+    // ~0.5 s after pressing: at least ~6,000 ft/min
+    const half = run(base, ["w"], 0.5);
+    assert.ok(half.vs * ft * 60 >= 6000 * saucerVertScale(warp) * 0.99, `w${warp} 0.5 s vs ${half.vs}`);
+    const up = run(base, ["w"], 2);
+    assert.ok((up.alt - base.alt) * ft > 1000, `w${warp} UP 2 s gained ${(up.alt - base.alt) * ft} ft`);
+    const down = run(base, ["s"], 2, 0);
+    assert.ok((base.alt - down.alt) * ft > 1000, `w${warp} DOWN 2 s lost ${(base.alt - down.alt) * ft} ft`);
+    assert.equal(down.crashed, false);
+  }
+  // half stick still climbs well
+  let f = spawnAircraft(saucer, 37, -122, 1500, 90, 0, false, false);
+  for (let i = 0; i < 240; i++) f = stepAircraft(saucer, f, { pitch: 0, roll: 0, yaw: 0, throttle: 0, vertical: 0.5 }, 1 / 120, 0);
+  assert.ok((f.alt - 1500) * ft > 500, `half stick ${(f.alt - 1500) * ft}`);
+});
+
+test("climbing works at every warp level even right on the warp floor", () => {
+  for (const warp of [1, 2, 3] as const) {
+    // skimming 60 m above 250 m terrain at Mach 10
+    let f = { ...spawnAircraft(saucer, 37, -122, 250 + WARP_FLOOR_M, 90, 0, false, false), warp };
+    f = run(f, [], 3, 250);
+    const a0 = f.alt;
+    f = run(f, ["w"], 2, 250);
+    assert.ok(f.alt - a0 > 300, `warp ${warp} climbed ${f.alt - a0} m`);
+  }
+});
+
+test("held DOWN brakes near the ground and lands softly (no crash)", () => {
+  let f = spawnAircraft(saucer, 37, -122, 2000, 90, 0, false, false);
+  f = run(f, ["s"], 30, 0);
+  assert.equal(f.crashed, false);
+  assert.equal(f.onGround, true);
+});
+
+test("mobile devices get a small 3D-tile memory budget; warp coarsens tiles", async () => {
+  const { isMobileDevice, tileBudget, warpScreenSpaceError } = await import("../src/device.ts");
+  const iphone = { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1" };
+  const ipad = { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", maxTouchPoints: 5 };
+  const mac = { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", maxTouchPoints: 0 };
+  assert.equal(isMobileDevice(iphone, false), true);
+  assert.equal(isMobileDevice(ipad, false), true);
+  assert.equal(isMobileDevice(mac, false), false);
+  const m = tileBudget(true);
+  assert.ok(m.cacheBytes + m.maximumCacheOverflowBytes <= 384 * 1024 * 1024);
+  assert.ok(m.maximumScreenSpaceError >= 16);
+  assert.equal(warpScreenSpaceError(16, 0), 16);
+  assert.ok(warpScreenSpaceError(16, 3) > warpScreenSpaceError(16, 1));
 });

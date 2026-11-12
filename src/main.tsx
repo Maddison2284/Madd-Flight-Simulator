@@ -18,6 +18,11 @@ import {
   type ExteriorCameraMode,
 } from "./camera";
 import { keyboardControls } from "./controls";
+import { WarpStreaks } from "./WarpStreaks";
+import { isMobileDevice, tileBudget, warpScreenSpaceError } from "./device";
+import { CrashScreen, ErrorBoundary, recordError } from "./crash";
+const MOBILE = isMobileDevice();
+const TILE_BUDGET = tileBudget(MOBILE);
 import { modelOrientation } from "./attitude";
 import { spawn, clamp, type Flight } from "./physics";
 import {
@@ -208,6 +213,7 @@ function App() {
     [photo, setPhoto] = useState(false),
     [help, setHelp] = useState(false),
     [sonic, setSonic] = useState(false),
+    [crash, setCrash] = useState<null | "render" | "context">(null),
     [startOnGround, setStartOnGround] = useState(false),
     [billingOpen, setBillingOpen] = useState(false),
     [billingMessage, setBillingMessage] = useState("");
@@ -298,6 +304,14 @@ function App() {
   const [orientationHint, setOrientationHint] = useState(
     "Rotate your phone for a wider view.",
   );
+  // Rotate hint: auto-hides 5 s into each flight; ✕ hides it right away.
+  const [rotateHidden, setRotateHidden] = useState(false);
+  useEffect(() => {
+    if (!flying) return;
+    setRotateHidden(false);
+    const timer = window.setTimeout(() => setRotateHidden(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [flying]);
   useEffect(() => {
     if (!flying) return;
     document.documentElement.classList.add("in-flight");
@@ -358,8 +372,27 @@ function App() {
       infoBox: false,
       selectionIndicator: false,
       shouldAnimate: true,
+      // We show our own friendly recover screen instead of Cesium's panel.
+      showRenderLoopErrors: false,
     });
     viewer.current = v;
+    // Memory: render at CSS-pixel resolution (never the 3× retina buffer) and
+    // keep fewer globe tiles on phones.
+    v.useBrowserRecommendedResolution = true;
+    v.resolutionScale = 1;
+    v.scene.globe.tileCacheSize = TILE_BUDGET.globeTileCacheSize;
+    v.scene.globe.preloadSiblings = false;
+    v.scene.renderError.addEventListener((_s: unknown, err: unknown) => {
+      recordError(err);
+      setCrash("render");
+    });
+    const canvasEl = v.scene.canvas;
+    const contextLost = (e: Event) => {
+      e.preventDefault();
+      recordError("webglcontextlost");
+      setCrash("context");
+    };
+    canvasEl.addEventListener("webglcontextlost", contextLost, false);
     (host.current as HTMLDivElement & { __viewer?: C.Viewer }).__viewer = v;
     C.TileMapServiceImageryProvider.fromUrl(
       C.buildModuleUrl("Assets/Textures/NaturalEarthII"),
@@ -556,14 +589,32 @@ function App() {
       setF({ ...to });
       flightAudio.zap(big);
       // Refine: sample detailed terrain / 3D tiles at the landing point and
-      // lift out if the jump ended inside a hill or building.
+      // lift out if the jump ended inside a hill or building. Debounced, so
+      // holding Jump does not force full-detail tiles at every hop.
+      window.clearTimeout(refineTimer);
+      refineTimer = window.setTimeout(() => refineJump(to), 450);
+    };
+    let refineTimer = 0;
+    const syncTileHeight = (cart: C.Cartographic): (C.Cartographic | undefined)[] => {
+      try {
+        const h = v.scene.sampleHeight(cart, heightExclude.current);
+        return Number.isFinite(h) ? [C.Cartographic.fromRadians(cart.longitude, cart.latitude, h)] : [];
+      } catch {
+        return [];
+      }
+    };
+    const refineJump = (to: Flight) => {
+      if (v.isDestroyed() || !active.current) return;
+      const warpingNow = (flight.current.warp ?? 0) > 0;
       const cart = C.Cartographic.fromDegrees(to.lon, to.lat);
       const terrain = v.terrainProvider.availability
         ? C.sampleTerrainMostDetailed(v.terrainProvider, [cart]).catch(() => [cart])
         : Promise.resolve([] as C.Cartographic[]);
       const tileH =
         tiles.current && v.scene.sampleHeightSupported
-          ? v.scene.sampleHeightMostDetailed([cart], heightExclude.current).catch(() => [])
+          ? warpingNow
+            ? Promise.resolve(syncTileHeight(cart))
+            : v.scene.sampleHeightMostDetailed([cart], heightExclude.current).catch(() => [])
           : Promise.resolve([] as (C.Cartographic | undefined)[]);
       void Promise.all([terrain, tileH]).then(([tp, hp]) => {
         const c = flight.current;
@@ -761,7 +812,9 @@ function App() {
     let previousCamera: ExteriorCameraPose | undefined;
     const tick = () => {
       const now = performance.now(),
-        dt = Math.min((now - last) / 1000, 0.1);
+        // Up to 0.25 s per frame so slow phones (low fps over 3D tiles at
+        // Mach 10) still fly in real time instead of slow motion.
+        dt = Math.min((now - last) / 1000, 0.25);
       last = now;
       plane.show = active.current && camera.current !== "cockpit";
       rotors.update(aircraftRef.current, flight.current, dt, active.current && !paused.current);
@@ -794,7 +847,7 @@ function App() {
         if (h !== undefined) ground.current = h;
       }
       const warping = (a.warp ?? 0) > 0;
-      if (now - terrainTime > (warping ? 400 : 2000) && !pending.current) {
+      if (now - terrainTime > (warping ? 600 : 2000) && !pending.current) {
         terrainTime = now;
         pending.current = true;
         const sampledLat = a.lat,
@@ -802,12 +855,17 @@ function App() {
         const terrain = v.terrainProvider.availability
           ? C.sampleTerrainMostDetailed(v.terrainProvider, [cart])
           : Promise.resolve([cart]);
+        // At warp, read heights from tiles already loaded (sampleHeight)
+        // instead of sampleHeightMostDetailed, which forces the highest-detail
+        // tiles at every new point (a new city every 0.6 s at Mach 10).
         const tileHeight =
           tiles.current && v.scene.sampleHeightSupported
-            ? v.scene.sampleHeightMostDetailed(
-                [cart],
-                heightExclude.current,
-              )
+            ? warping
+              ? Promise.resolve(syncTileHeight(cart))
+              : v.scene.sampleHeightMostDetailed(
+                  [cart],
+                  heightExclude.current,
+                )
             : Promise.resolve([] as (C.Cartographic | undefined)[]);
         Promise.all([terrain, tileHeight])
           .then(([points, tilePoints]) => {
@@ -921,13 +979,18 @@ function App() {
         };
       }
       if (!paused.current) {
-        accumulator += dt;
-        while (accumulator >= 1 / 120) {
+        // Fixed-count substeps (<= 1/120 s) that sum to this frame's dt, so
+        // per-frame motion is proportional to real time (no 2-vs-3-step
+        // judder that strobes the scenery at Mach speeds).
+        const steps = Math.max(1, Math.ceil(dt * 120 - 1e-6));
+        const h = dt / steps;
+        accumulator = 0;
+        for (let i = 0; i < steps; i++) {
           flight.current = stepAircraft(
             aircraftRef.current,
             flight.current,
             controls,
-            1 / 120,
+            h,
             ground.current,
           );
           if (inGrace && flight.current.crashed) {
@@ -940,7 +1003,6 @@ function App() {
               ),
             };
           }
-          accumulator -= 1 / 120;
         }
       } else accumulator = 0;
       // Viewer evaluates entity callbacks before this listener. Render camera
@@ -1025,8 +1087,20 @@ function App() {
         // Quick FOV punch for ~200 ms after a teleport jump.
         const since = performance.now() - jumpAt.current;
         const punch = jumpAt.current && since < 220 ? 0.3 * (1 - since / 220) : 0;
-        const stretch = 1 + (flight.current.warp ?? 0) * 0.1 + punch;
-        frustum.fov += (base * stretch - frustum.fov) * 0.12;
+        const stretch = 1 + (flight.current.warp ?? 0) * 0.06 + punch;
+        // Frame-rate independent easing; skip sub-visible changes so the
+        // projection is not rebuilt every frame once settled.
+        const target = base * stretch;
+        const diff = target - frustum.fov;
+        if (Math.abs(diff) > 1e-4) frustum.fov += diff * (1 - Math.exp(-dt / (punch ? 0.06 : 0.45)));
+      }
+      // Google 3D tiles at warp speed: coarser detail so Mach 10 does not
+      // stream (and cache) full-detail cities faster than a phone can hold.
+      const t3d = tiles.current;
+      if (t3d) {
+        const w = flight.current.warp ?? 0;
+        const sse = warpScreenSpaceError(TILE_BUDGET.maximumScreenSpaceError, w);
+        if (t3d.maximumScreenSpaceError !== sse) t3d.maximumScreenSpaceError = sse;
       }
       const machNow = machNumber(flight.current);
       if (active.current && lastMach < 1 && machNow >= 1) setSonic(true);
@@ -1066,6 +1140,8 @@ function App() {
       window.removeEventListener("pointerup", pointerUp);
       window.removeEventListener("pointercancel", pointerUp);
       hostEl.removeEventListener("dblclick", dblClick);
+      canvasEl.removeEventListener("webglcontextlost", contextLost, false);
+      window.clearTimeout(refineTimer);
       click.destroy();
       planeEntity.current = null;
       if (host.current)
@@ -1301,10 +1377,12 @@ function App() {
       const t = await C.createGooglePhotorealistic3DTileset(
         { key },
         {
-          maximumScreenSpaceError: 8,
-          cacheBytes: 1024 * 1024 * 1024,
-          maximumCacheOverflowBytes: 512 * 1024 * 1024,
+          maximumScreenSpaceError: TILE_BUDGET.maximumScreenSpaceError,
+          cacheBytes: TILE_BUDGET.cacheBytes,
+          maximumCacheOverflowBytes: TILE_BUDGET.maximumCacheOverflowBytes,
           dynamicScreenSpaceError: true,
+          preloadFlightDestinations: false,
+          loadSiblings: false,
         },
       );
       if (v.isDestroyed()) {
@@ -1478,7 +1556,12 @@ function App() {
       e.preventDefault();
       teleportRef.current(e.shiftKey);
       stopJumpHold();
-      jumpTimer.current = window.setInterval(() => teleportRef.current(false), JUMP_COOLDOWN_MS + 20);
+      jumpTimer.current = window.setInterval(() => {
+        // Safety: never keep jumping after the flight ends or the page hides
+        // (iOS can drop the pointerup).
+        if (!active.current || document.hidden) return stopJumpHold();
+        teleportRef.current(false);
+      }, JUMP_COOLDOWN_MS + 20);
     },
     onPointerUp: stopJumpHold,
     onPointerCancel: stopJumpHold,
@@ -1601,7 +1684,21 @@ function App() {
       data-sonic={sonic ? "true" : "false"}
     >
       <div ref={host} className="globe" />
-      {flying && (f.warp ?? 0) > 0 && <div className="warp-streaks" data-warp={f.warp} aria-hidden="true" />}
+      {crash && (
+        <CrashScreen
+          kind={crash}
+          onResume={
+            crash === "render"
+              ? () => {
+                  const v = viewer.current;
+                  if (v && !v.isDestroyed()) v.useDefaultRenderLoop = true;
+                  setCrash(null);
+                }
+              : undefined
+          }
+        />
+      )}
+      {flying && (f.warp ?? 0) > 0 && <WarpStreaks level={f.warp ?? 0} />}
       {flying && jumpFx > 0 && (
         <div key={jumpFx} className="teleport-fx" data-jump={jumpFx} aria-hidden="true">
           <div className="teleport-streaks" />
@@ -2193,9 +2290,12 @@ function App() {
               {fmtInt(altFromM(f.alt - ground.current, units))}
             </span>
           </div>
-          <div className="rotate-hint">
+          <div className="rotate-hint" data-hidden={rotateHidden ? "true" : "false"}>
             <span>{orientationHint}</span>
             <button onClick={requestLandscape}>Landscape</button>
+            <button className="rotate-close" aria-label="Dismiss rotate hint" onClick={() => setRotateHidden(true)}>
+              ✕
+            </button>
           </div>
           <div
             className="heading-strip"
@@ -2826,6 +2926,8 @@ createRoot(document.getElementById("root")!).render(
     signInUrl="/"
     signUpUrl="/"
   >
-    <Root />
+    <ErrorBoundary>
+      <Root />
+    </ErrorBoundary>
   </ClerkProvider>,
 );

@@ -82,7 +82,30 @@ function silentWavDataUri(): string {
   return silentUri;
 }
 
+/** Noise buffers are cached per context + length: one-shot sounds (boom,
+ * jump zap, held Jump every ~0.3 s) reuse them instead of allocating and
+ * filling a fresh buffer each time. */
+const noiseCache = new WeakMap<BaseAudioContext, Map<number, AudioBuffer>>();
 function noiseBuffer(ctx: AudioContext, seconds = 2): AudioBuffer {
+  let m = noiseCache.get(ctx);
+  if (!m) noiseCache.set(ctx, (m = new Map()));
+  const hit = m.get(seconds);
+  if (hit) return hit;
+  const made = makeNoise(ctx, seconds);
+  m.set(seconds, made);
+  return made;
+}
+/** Disconnect a one-shot's nodes once its source ends. */
+function disposeOnEnd(src: AudioScheduledSourceNode, ...nodes: AudioNode[]) {
+  src.onended = () => {
+    for (const n of [src, ...nodes]) {
+      try {
+        n.disconnect();
+      } catch {}
+    }
+  };
+}
+function makeNoise(ctx: AudioContext, seconds: number): AudioBuffer {
   const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -423,6 +446,7 @@ export class FlightAudio {
     src.connect(filter);
     filter.connect(gain);
     gain.connect(this.master);
+    disposeOnEnd(src, filter, gain);
     src.start();
     src.stop(ctx.currentTime + duration);
   }
@@ -443,6 +467,7 @@ export class FlightAudio {
     og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(og);
     og.connect(this.master);
+    disposeOnEnd(osc, og);
     osc.start(t);
     osc.stop(t + dur + 0.02);
     const src = ctx.createBufferSource();
@@ -458,6 +483,7 @@ export class FlightAudio {
     src.connect(bp);
     bp.connect(ng);
     ng.connect(this.master);
+    disposeOnEnd(src, bp, ng);
     src.start(t);
     src.stop(t + dur);
   }
@@ -476,6 +502,7 @@ export class FlightAudio {
     og.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
     osc.connect(og);
     og.connect(this.master);
+    disposeOnEnd(osc, og);
     osc.start(t);
     osc.stop(t + 0.7);
     this.burst(0.45, 0.8);

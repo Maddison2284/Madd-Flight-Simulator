@@ -335,8 +335,18 @@ export const SAUCER: RotorcraftParams = {
 
 /** Saucer top forward speed at full throttle (m/s, ~335 mph). */
 export const SAUCER_FWD_MS = 150;
-/** Saucer max vertical speed on W/S, R/F, stick (m/s, ~8,900 ft/min). */
-export const SAUCER_VERT_MS = 45;
+/** Saucer vertical speed reached almost instantly (~0.25 s) on W/S, R/F,
+ * UP/DOWN buttons or the stick (m/s, ~7,900 ft/min). */
+export const SAUCER_VERT_MS = 40;
+/** Holding up/down keeps building vertical speed to this cap (m/s,
+ * ~59,000 ft/min) without warp; scaled by saucerVertScale(warp). */
+export const SAUCER_VERT_MAX_MS = 300;
+/** Build-up rate while up/down is held (m/s²). */
+export const SAUCER_VERT_ACCEL = 260;
+/** Vertical authority multiplier per warp level (off, 1, 2, 3). */
+export function saucerVertScale(warp = 0): number {
+  return [1, 2, 4, 8][warp as WarpLevel] ?? 1;
+}
 /** Cosmetic nose tilt at full up/down command (deg). */
 export const SAUCER_TILT_DEG = 12;
 
@@ -393,9 +403,30 @@ export function stepSaucer(
   }
   vn += dn;
   ve += de;
-  // Vertical: direct; hands-off holds altitude.
-  const vk = 1 - Math.exp(-dt * (Math.abs(vc) >= 0.08 ? 2.5 : 3.5));
-  vs += (vc * SAUCER_VERT_MS - vs) * vk;
+  // Vertical: strong and immediate. Snap to SAUCER_VERT_MS in ~0.25 s, then
+  // keep accelerating while held (faster at higher warp). Hands-off stops
+  // quickly and holds altitude.
+  const vmul = saucerVertScale(warp);
+  if (Math.abs(vc) >= 0.08) {
+    const dir = Math.sign(vc);
+    const mag = Math.abs(vc);
+    const snap = SAUCER_VERT_MS * mag * vmul;
+    const cap = SAUCER_VERT_MAX_MS * mag * vmul;
+    let v = vs * dir;
+    if (v < snap) v += (snap - v) * (1 - Math.exp(-dt * 10));
+    if (v > cap) v += (cap - v) * (1 - Math.exp(-dt * 3));
+    else v = Math.min(cap, v + SAUCER_VERT_ACCEL * vmul * mag * dt);
+    vs = v * dir;
+  } else {
+    vs -= vs * (1 - Math.exp(-dt * 6));
+  }
+  // Descending fast near the ground: limit the sink rate by height so a
+  // held DOWN brakes into a gentle arrival instead of a crash.
+  {
+    const aglNow = f.alt - ground - P.gear - (warp > 0 ? WARP_FLOOR_M : 0);
+    const maxSink = 8 + Math.max(0, aglNow) * 1.5;
+    if (vs < -maxSink) vs = -maxSink;
+  }
 
   // Gentle flare so a controlled descent settles instead of cratering.
   const agl = f.alt - ground - P.gear;

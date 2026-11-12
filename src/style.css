@@ -2398,37 +2398,26 @@ footer > div {
 }
 
 /* Warp / sonic boom visuals (saucer). */
-.warp-streaks,
 .sonic-boom {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 6;
 }
+/* Radial speed lines (canvas, see WarpStreaks.tsx): under every HUD/UI layer. */
 .warp-streaks {
-  background:
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 18px,
-      #e8fff655 18px 19px,
-      transparent 19px 42px
-    );
-  animation: warp-streak 0.35s linear infinite;
-  opacity: 0.35;
-  mix-blend-mode: screen;
-}
-.warp-streaks[data-warp="2"] {
-  opacity: 0.55;
-  animation-duration: 0.16s;
-}
-@keyframes warp-streak {
-  from { transform: translateX(0); }
-  to { transform: translateX(-42px); }
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  display: block;
 }
 .sonic-boom {
   background:
-    radial-gradient(circle at 50% 55%, #fff 0 8%, #9af7ff88 18%, #ffffff00 62%);
-  animation: sonic-flash 0.55s ease-out forwards;
+    radial-gradient(circle at 50% 55%, #ffffff8c 0 6%, #9af7ff40 18%, #ffffff00 55%);
+  animation: sonic-flash 0.6s ease-out forwards;
 }
 .sonic-boom::after {
   content: "";
@@ -2437,13 +2426,13 @@ footer > div {
   top: 55%;
   width: 20px;
   height: 20px;
-  border: 3px solid #e8ffffcc;
+  border: 2px solid #e8ffff80;
   border-radius: 50%;
   transform: translate(-50%, -50%);
   animation: sonic-cone 0.55s ease-out forwards;
 }
 @keyframes sonic-flash {
-  0% { opacity: 1; }
+  0% { opacity: 0.8; }
   100% { opacity: 0; }
 }
 @keyframes sonic-cone {
@@ -2517,24 +2506,24 @@ footer a,
   inset: 0;
   pointer-events: none;
   z-index: 7;
-  background: radial-gradient(circle at 50% 52%, #ffffff 0 22%, #d9fbffcc 45%, #ffffff00 85%);
-  animation: teleport-flash 0.22s ease-out forwards;
+  background: radial-gradient(circle at 50% 52%, #ffffff99 0 16%, #d9fbff4d 42%, #ffffff00 80%);
+  animation: teleport-flash 0.26s ease-out forwards;
 }
 .teleport-streaks {
   position: absolute;
   inset: 0;
-  background: repeating-conic-gradient(from 0deg at 50% 52%, #ffffff00 0deg 4deg, #e8fffbaa 4deg 5deg, #ffffff00 5deg 11deg);
+  background: repeating-conic-gradient(from 0deg at 50% 52%, #ffffff00 0deg 4deg, #e8fffb59 4deg 4.5deg, #ffffff00 4.5deg 11deg);
   -webkit-mask: radial-gradient(circle at 50% 52%, transparent 0 12%, #000 40%);
   mask: radial-gradient(circle at 50% 52%, transparent 0 12%, #000 40%);
   animation: teleport-streak 0.22s ease-out forwards;
 }
 @keyframes teleport-flash {
-  0% { opacity: 1; }
-  35% { opacity: 0.85; }
+  0% { opacity: 0.7; }
+  30% { opacity: 0.5; }
   100% { opacity: 0; }
 }
 @keyframes teleport-streak {
-  0% { transform: scale(0.6); opacity: 1; }
+  0% { transform: scale(0.6); opacity: 0.7; }
   100% { transform: scale(1.6); opacity: 0; }
 }
 /* Shown while flying if the browser has not let audio start yet. */
@@ -2558,12 +2547,6 @@ footer a,
 }
 .units-setting select {
   width: 100%;
-}
-.warp-streaks[data-warp="3"] {
-  opacity: 0.75;
-  animation-duration: 0.08s;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 10px, #f0fffbaa 10px 12px, transparent 12px 26px);
 }
 
 /* Saucer / helicopter: big hold-to-climb / hold-to-descend buttons. */
@@ -2685,4 +2668,52 @@ footer a,
 [data-camera="cockpit"] .flight-hint {
   bottom: auto;
   top: calc(190px + env(safe-area-inset-top, 0px));
+}
+
+/* "Rotate your phone" hint: dismissible, auto-hides after a few seconds. */
+.rotate-hint[data-hidden="true"] {
+  display: none !important;
+}
+.rotate-hint .rotate-close {
+  min-width: 44px;
+  padding: 0 10px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* Friendly recover screen (render error, WebGL context lost, app error). */
+.crash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #07131bf0;
+  color: #eafff3;
+  text-align: center;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+.crash-screen strong {
+  font-size: 18px;
+}
+.crash-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.crash-actions button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #a4f4be;
+  background: #173a2c;
+  color: #eafff3;
+  font-weight: 700;
+}
+.crash-actions button.primary {
+  background: #2fd27a;
+  color: #04140b;
 }
