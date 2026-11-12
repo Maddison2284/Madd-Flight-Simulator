@@ -1,5 +1,11 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import {
+  clientCookieValues,
+  keepNewestClientCookie,
+  responseSetsClientCookie,
+  strayClientCookieDeletions,
+} from "./clerk-cookies";
+import {
   applyTrialHeartbeat,
   computeEntitlement,
   emptyTrial,
@@ -654,6 +660,11 @@ async function handleClerkProxy(request: Request, env: Env, url: URL): Promise<R
   headers.set("Clerk-Proxy-Url", url.origin + CLERK_PROXY_PATH);
   headers.set("Clerk-Secret-Key", env.CLERK_SECRET_KEY);
   headers.set("X-Forwarded-For", request.headers.get("CF-Connecting-IP") || "");
+  // A stale second __client cookie makes Clerk lose the sign-up between steps
+  // (see clerk-cookies.ts). Forward only the newest one.
+  const cookieHeader = request.headers.get("Cookie");
+  const clientCookies = clientCookieValues(cookieHeader).length;
+  if (cookieHeader && clientCookies > 1) headers.set("Cookie", keepNewestClientCookie(cookieHeader));
   const hasBody = !["GET", "HEAD"].includes(request.method);
   const upstream = await fetch(target, {
     method: request.method,
@@ -674,6 +685,11 @@ async function handleClerkProxy(request: Request, env: Env, url: URL): Promise<R
         headers: { Location: url.origin + "/?auth_error=google", "Cache-Control": "no-store" },
       });
     }
+  }
+  if (clientCookies > 1 || (clientCookies > 0 && responseSetsClientCookie(upstream.headers))) {
+    const res = new Response(upstream.body, upstream);
+    for (const del of strayClientCookieDeletions(url.hostname)) res.headers.append("Set-Cookie", del);
+    return res;
   }
   return upstream;
 }
