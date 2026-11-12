@@ -9,7 +9,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
-    "test:touch": "node tests/touch.mjs"
+    "test:touch": "node tests/touch.mjs",
+    "test:overlap": "node tests/ui-overlap.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^3.27.0",

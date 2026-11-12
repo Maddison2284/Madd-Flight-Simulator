@@ -3236,3 +3236,26 @@ html.in-flight main[data-camera="cockpit"][data-touch="true"] .cockpit-art {
 html.in-flight .cesium-viewer-bottom {
   z-index: 4;
 }
+/* Top-right row: chips/buttons keep their natural width (no squashed
+ * "Credits" or trial chip); only the status text gives way, with an ellipsis.
+ * The Clerk avatar is a compact 34px pill flush in the row. */
+html.in-flight header .top-right > * {
+  flex-shrink: 0;
+}
+html.in-flight header .top-right > .live-dot + span {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html.in-flight header .top-right .cl-userButton-root {
+  width: auto !important;
+  flex: 0 0 auto;
+}
+html.in-flight header .top-right .cl-userButtonTrigger {
+  height: 34px;
+  min-height: 34px;
+  padding: 3px !important;
+  border-radius: 8px;
+}
