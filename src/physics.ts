@@ -1,3 +1,4 @@
+import { GEAR_UP_DRAG } from "./gear";
 export type Flight = {
   lat: number;
   lon: number;
@@ -22,6 +23,8 @@ export type Flight = {
   warp?: 0 | 1 | 2 | 3;
   /** Planes: ballistic sink (m/s) built up in thin air at extreme altitude. */
   sink?: number;
+  /** Retractable-gear planes: gear commanded UP (src/gear.ts). */
+  gearUp?: boolean;
 };
 export type Controls = {
   pitch: number;
@@ -233,7 +236,7 @@ export function step(
     f.speed +
       (throttle * (f.boost ? perf.boostThrust : perf.thrust) -
         1.5 -
-        (f.boost ? perf.boostDrag : perf.drag) * f.speed * f.speed -
+        (f.boost ? perf.boostDrag : perf.drag) * (f.gearUp ? GEAR_UP_DRAG : 1) * f.speed * f.speed -
         9.81 * Math.sin(pitch * rad)) *
         dt,
     perf.minSpeed,
@@ -284,8 +287,12 @@ export function step(
   // Ground contact: a gentle touchdown settles on the gear and keeps rolling;
   // only a hard or badly aligned impact ends the flight.
   if (!isSafePlaneTouchdown(next, perf)) return { ...next, crashed: true };
+  // A gentle touchdown with the gear still up: the gear is forced down
+  // (emergency extension) so the landing still works; the flight loop warns
+  // about it beforehand and auto-extends on a slow, low approach.
   return {
     ...next,
+    gearUp: false,
     alt: ground + gear,
     vs: 0,
     pitch: clamp(pitch, 0, 15),

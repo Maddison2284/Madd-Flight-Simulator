@@ -55,6 +55,7 @@ import {
   formatDistanceUnits,
 } from "./units";
 import { ROTOR_PARTS, RotorAnimator } from "./rotors";
+import { GearAnimator, gearWarning, hasRetractableGear, initialGearUp, shouldAutoExtend, toggleGear } from "./gear";
 import { MAX_START_ALT_FT, altToSlider, sliderToAlt, startAltFt } from "./altitude";
 import { TouchControls, type TouchAxes } from "./TouchControls";
 import { Cockpit } from "./Cockpit";
@@ -96,6 +97,7 @@ const cameraLabels: Record<string, string> = {
 };
 const initial = spawn(37.807, -122.475, 900, 90, 120);
 const rotors = new RotorAnimator();
+const gearAnim = new GearAnimator();
 /** Shortest signed angle from a to b (radians). */
 const angleDelta = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 flightAudio.installGestureUnlock();
@@ -107,7 +109,7 @@ function controlHint(a: { engine: string; id: string }): string {
     return "W / R / Space = Up · S / F = Down · A/D bank & turn · ↑↓ or +/− forward · B = Warp (Mach 1.2 / 4 / 10 / off) · J = Jump 1 mi (Shift+J = 10 mi)";
   if (a.engine === "rotor")
     return "R / + = Up (collective) · F / − = Down · H = hover · W/A/S/D cyclic · Q/E pedals";
-  return "+ / − throttle · W/S or ↑↓ pitch · A/D or ←→ roll · Q/E rudder · B boost";
+  return "+ / − throttle · W/S or ↑↓ pitch · A/D or ←→ roll · Q/E rudder · B boost" + (hasRetractableGear(a.id) ? " · G gear up / down" : "");
 }
 const clerkPublishableKey = (
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || ""
@@ -197,7 +199,9 @@ function App() {
     navRef = useRef<NavInfo | null>(null),
     snapCamera = useRef(false),
     jumpAt = useRef(0),
-    teleportRef = useRef<(big: boolean) => void>(() => {});
+    teleportRef = useRef<(big: boolean) => void>(() => {}),
+    gearToggleRef = useRef<() => void>(() => {}),
+    gearBeepAt = useRef(0);
   const [f, setF] = useState(initial),
     [ready, setReady] = useState(false),
     [flying, setFlying] = useState(false),
@@ -213,6 +217,8 @@ function App() {
     [photo, setPhoto] = useState(false),
     [help, setHelp] = useState(false),
     [sonic, setSonic] = useState(false),
+    [gearNotice, setGearNotice] = useState(""),
+    [gearAnimStatus, setGearAnimStatus] = useState<"down" | "up" | "moving">("down"),
     [crash, setCrash] = useState<null | "render" | "context">(null),
     [startOnGround, setStartOnGround] = useState(false),
     [billingOpen, setBillingOpen] = useState(false),
@@ -445,7 +451,7 @@ function App() {
         uri: aircraftRef.current.uri,
         minimumPixelSize: 80,
         maximumScale: 1,
-        nodeTransformations: rotors.nodeTransformations(() => aircraftRef.current),
+        nodeTransformations: rotors.nodeTransformations(() => aircraftRef.current, gearAnim),
       },
       show: false,
     });
@@ -663,6 +669,11 @@ function App() {
         return;
       }
       if (e.repeat) return;
+      if (k === "g" && active.current && hasRetractableGear(aircraftRef.current.id)) {
+        e.preventDefault();
+        gearToggleRef.current();
+        return;
+      }
       if (k === "c") {
         camera.current =
           cameraModes[
@@ -818,6 +829,21 @@ function App() {
       last = now;
       plane.show = active.current && camera.current !== "cockpit";
       rotors.update(aircraftRef.current, flight.current, dt, active.current && !paused.current);
+      {
+        const fc = flight.current;
+        const up = Boolean(fc.gearUp);
+        // Touchdown forced the gear down (or a ground start): no fold-down
+        // animation while sitting on the wheels.
+        if (fc.onGround && !up && gearAnim.pos > 0) gearAnim.reset(aircraftRef.current.id, false);
+        gearAnim.update(aircraftRef.current.id, up, active.current && !paused.current ? dt : 0);
+        (window as unknown as { __mfGear?: unknown }).__mfGear = {
+          aircraft: aircraftRef.current.id,
+          retractable: hasRetractableGear(aircraftRef.current.id),
+          up,
+          pos: gearAnim.pos,
+          status: gearAnim.status(up),
+        };
+      }
       if (active.current) rotors.check(v.scene, aircraftRef.current);
       (window as unknown as { __mfRotors?: unknown }).__mfRotors = {
         matched: rotors.matched,
@@ -1005,6 +1031,14 @@ function App() {
           }
         }
       } else accumulator = 0;
+      if (
+        flight.current.gearUp &&
+        shouldAutoExtend(flight.current, flight.current.alt - ground.current, aircraftRef.current.performance.stallSpeed)
+      ) {
+        flight.current = { ...flight.current, gearUp: false };
+        setGearNotice("GEAR AUTO-EXTENDED");
+        flightAudio.gearClunk();
+      }
       // Viewer evaluates entity callbacks before this listener. Render camera
       // from that same pre-step pose so fast motion cannot outrun the model.
       const b = a;
@@ -1107,6 +1141,14 @@ function App() {
       lastMach = active.current ? machNow : 0;
       if (now - ui > 100) {
         setF({ ...flight.current });
+        setGearAnimStatus(gearAnim.status(Boolean(flight.current.gearUp)));
+        if (
+          gearWarning(flight.current, flight.current.alt - ground.current) &&
+          now - gearBeepAt.current > 1500
+        ) {
+          gearBeepAt.current = now;
+          flightAudio.gearWarning();
+        }
         setNav(navRef.current);
         const ap = apRef.current;
         setApMode(ap.engaged ? (ap.holding ? "hold" : "nav") : "off");
@@ -1282,6 +1324,14 @@ function App() {
       startOnGround,
     );
     if (startOnGround) flight.current = { ...flight.current, alt: cached + gear };
+    {
+      // Gear down on the ground; up when starting airborne above ~500 ft.
+      const gearUp = initialGearUp(aircraft.id, startOnGround, flight.current.alt - cached);
+      flight.current = { ...flight.current, gearUp };
+      gearAnim.reset(aircraft.id, gearUp);
+      setGearAnimStatus(gearUp ? "up" : "down");
+      setGearNotice("");
+    }
     setF({ ...flight.current });
     void flightAudio.start().then(() =>
       flightAudio.update({
@@ -1572,6 +1622,27 @@ function App() {
     },
   };
   useEffect(() => stopJumpHold, []);
+  const toggleLandingGear = () => {
+    if (!active.current) return;
+    const r = toggleGear(flight.current, aircraftRef.current.id);
+    if (r.refused === "ground") {
+      setGearNotice("GEAR LOCKED DOWN ON THE GROUND");
+      return;
+    }
+    if (r.refused) return;
+    if (r.gearUp !== Boolean(flight.current.gearUp)) {
+      flight.current = { ...flight.current, gearUp: r.gearUp };
+      setGearNotice("");
+      flightAudio.gearClunk();
+      setF({ ...flight.current });
+    }
+  };
+  gearToggleRef.current = toggleLandingGear;
+  useEffect(() => {
+    if (!gearNotice) return;
+    const timer = window.setTimeout(() => setGearNotice(""), 3000);
+    return () => window.clearTimeout(timer);
+  }, [gearNotice]);
   const toggleWarp = (toMax = false) => {
     if (aircraft.engine === "saucer") {
       const warp = cycleWarp(flight.current.warp ?? 0, toMax);
@@ -1625,7 +1696,7 @@ function App() {
         });
         return;
       }
-      if (event.key === "g" || event.key === "G") {
+      if ((event.key === "g" || event.key === "G") && !(active.current && hasRetractableGear(aircraftRef.current.id))) {
         event.preventDefault();
         setGaugeSize((current) => {
           const next = cycleGaugeSize(current);
@@ -1678,6 +1749,7 @@ function App() {
       data-entitled={entitlement.state?.entitled ? "true" : "false"}
       data-trial-ms={String(trialMs ?? entitlement.state?.trialRemainingMs ?? "")}
       data-warp={String(f.warp ?? 0)}
+      data-gear={hasRetractableGear(aircraftId) ? gearAnimStatus : "fixed"}
       data-jumps={String(jumpFx)}
       data-audio={audioState}
       data-units={units}
@@ -2206,6 +2278,17 @@ function App() {
               ? `Warp ${f.warp ? `${f.warp} · Mach ${WARP_MACH[f.warp]}` : "off"} · B`
               : `Boost ${f.boost ? "on" : "off"} · B`}
           </button>
+          {hasRetractableGear(aircraft.id) && (
+            <button
+              className="desktop-boost desktop-gear"
+              aria-label="Landing gear"
+              aria-pressed={Boolean(f.gearUp)}
+              data-gear={gearAnimStatus}
+              onClick={toggleLandingGear}
+            >
+              {gearAnimStatus === "moving" ? (f.gearUp ? "Gear ▲ retracting" : "Gear ▼ extending") : f.gearUp ? "Gear up ▲" : "Gear down ▼"} · G
+            </button>
+          )}
           {aircraft.engine === "saucer" && (
             <button
               className="desktop-boost desktop-jump"
@@ -2223,6 +2306,17 @@ function App() {
             >
               {aircraft.engine === "saucer" ? (f.warp ? `WARP ${f.warp}` : "Warp") : "Boost"}
             </button>
+            {hasRetractableGear(aircraft.id) && (
+              <button
+                aria-label="Landing gear"
+                className="gear-btn"
+                aria-pressed={Boolean(f.gearUp)}
+                data-gear={gearAnimStatus}
+                onClick={toggleLandingGear}
+              >
+                GEAR {f.gearUp ? "▲" : "▼"}
+              </button>
+            )}
             {aircraft.engine === "saucer" && (
               <button aria-label="Jump" className="jump-btn" {...jumpHold}>
                 Jump
@@ -2289,6 +2383,12 @@ function App() {
               <small>{altLabel(units)} AGL</small>
               {fmtInt(altFromM(f.alt - ground.current, units))}
             </span>
+            {hasRetractableGear(aircraft.id) && (
+              <span className="hud-gear" data-gear={gearAnimStatus}>
+                <small>GEAR</small>
+                {gearAnimStatus === "moving" ? "⇅" : gearAnimStatus === "up" ? "UP" : "DN"}
+              </span>
+            )}
           </div>
           <div className="rotate-hint" data-hidden={rotateHidden ? "true" : "false"}>
             <span>{orientationHint}</span>
@@ -2433,7 +2533,23 @@ function App() {
               value={fmtInt(altFromM(f.alt - ground.current, units))}
               unit={`${altLabel(units)} AGL`}
             />
+            {hasRetractableGear(aircraft.id) && (
+              <div className="gear-ind" data-gear={gearAnimStatus} aria-label={`Landing gear ${gearAnimStatus}`}>
+                <small>GEAR</small>
+                <i aria-hidden="true">
+                  <b />
+                  <b />
+                  <b />
+                </i>
+                <span>{gearAnimStatus === "moving" ? "MOVING" : gearAnimStatus === "up" ? "UP" : "DOWN"}</span>
+              </div>
+            )}
           </div>
+          {(gearNotice || (hasRetractableGear(aircraft.id) && gearWarning(f, f.alt - ground.current))) && !f.crashed && (
+            <div className="gear-warn" role="alert">
+              {gearNotice || (touchVisible ? "GEAR UP · tap GEAR to lower it" : "GEAR UP · press G to lower it")}
+            </div>
+          )}
           {f.onGround && !f.crashed && !pause && (
             <div className="ground-chip" data-on-ground="1">
               {isHoverCapable(aircraft)
@@ -2653,7 +2769,9 @@ function App() {
             ["Scroll wheel", "Zoom camera in / out"],
             ["Page Up / Page Down", "Zoom camera in / out"],
             ["[ / ]", "Smaller / larger gauges"],
-            ["G", "Cycle gauge size"],
+            ...(hasRetractableGear(aircraft.id)
+              ? [["G", "Landing gear up / down (GEAR button on touch)"]]
+              : [["G", "Cycle gauge size"]]),
             ["C", "Cycle chase / cockpit / wing / front"],
             ["B", "Toggle arcade speed boost"],
             ["P", "Pause / resume"],
@@ -2700,6 +2818,16 @@ function App() {
             great-circle to your destination, then circles in a hold. Manual
             stick or throttle input disengages it. Spawn height automatically
             clears terrain by at least {units === "metric" ? "150 m" : "500 ft"}. Simplified recreational physics.
+            {hasRetractableGear(aircraft.id) && (
+              <>
+                {" "}Landing gear: press G (or tap GEAR) to retract or extend it; it
+                folds up in about 1.6 s and trims a little drag. It starts down on
+                the ground and up when you start in the air. Below{" "}
+                {units === "metric" ? "150 m" : "500 ft"} with the gear up and
+                descending you get a GEAR UP warning; on a slow, low approach it
+                extends automatically, and it is locked down while on the ground.
+              </>
+            )}
           </p>
           )}
         </section>

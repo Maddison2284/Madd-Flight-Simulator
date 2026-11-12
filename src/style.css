@@ -2717,3 +2717,97 @@ footer a,
   background: #2fd27a;
   color: #04140b;
 }
+
+/* Landing gear (src/gear.ts): desktop button, compact HUD light, warning. */
+.desktop-boost.desktop-gear {
+  top: 222px;
+}
+.desktop-gear[data-gear="moving"],
+.phone-actions .gear-btn[data-gear="moving"] {
+  border-color: #ffd27a;
+  color: #ffe7b0;
+}
+.gear-ind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 46px;
+  gap: 5px;
+}
+.gear-ind small {
+  font-size: 8px;
+  color: #93aebc;
+  letter-spacing: 1px;
+}
+.gear-ind i {
+  display: grid;
+  grid-template-columns: repeat(3, 10px);
+  grid-template-rows: 10px 10px;
+  gap: 2px 4px;
+}
+.gear-ind b {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2c3d47;
+  border: 1px solid #ffffff30;
+}
+.gear-ind b:nth-child(1) {
+  grid-column: 2;
+  grid-row: 1;
+}
+.gear-ind b:nth-child(2) {
+  grid-column: 1;
+  grid-row: 2;
+}
+.gear-ind b:nth-child(3) {
+  grid-column: 3;
+  grid-row: 2;
+}
+.gear-ind[data-gear="down"] b {
+  background: #3ddc84;
+  box-shadow: 0 0 6px #3ddc8499;
+}
+.gear-ind[data-gear="moving"] b {
+  background: #ff5a4f;
+  box-shadow: 0 0 6px #ff5a4f99;
+}
+.gear-ind span {
+  font: 8px monospace;
+  color: #a4f4be;
+}
+.gear-ind[data-gear="up"] span {
+  color: #93aebc;
+}
+.gear-ind[data-gear="moving"] span {
+  color: #ffb0a8;
+}
+.hud-gear[data-gear="down"] {
+  color: #3ddc84;
+}
+.hud-gear[data-gear="moving"] {
+  color: #ff8a80;
+}
+.hud-gear[data-gear="up"] {
+  color: #b8c9d2;
+}
+.gear-warn {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  z-index: 5;
+  background: #3a1212d9;
+  border: 1px solid #ff6b5f;
+  color: #ffd2cc;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

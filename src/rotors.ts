@@ -2,6 +2,7 @@ import * as C from "cesium";
 import type { Aircraft } from "./aircraft";
 import type { Flight } from "./physics";
 import { rotorParams } from "./flight-model";
+import { GEAR_NODES, type GearAnimator } from "./gear";
 
 /** Spinning parts rigged into the GLBs by scripts/rig-rotors.mjs. Each part
  * has a blade node (pivot at the hub) and a `<node>_disc` motion-blur disc.
@@ -165,14 +166,36 @@ export class RotorAnimator {
   }
 
   /** PropertyBag for ModelGraphics.nodeTransformations. */
-  nodeTransformations(getAircraft: () => Aircraft): C.PropertyBag {
+  nodeTransformations(getAircraft: () => Aircraft, gear?: GearAnimator): C.PropertyBag {
+    const bag: Record<string, C.CallbackProperty> = {};
+    if (gear) {
+      // Landing gear legs + doors (src/gear.ts), posed from the animator.
+      const trs = new Map<string, C.TranslationRotationScale>();
+      let cacheKey = "";
+      let cached: ReturnType<GearAnimator["poses"]> = {};
+      for (const node of GEAR_NODES)
+        bag[node] = new C.CallbackProperty(() => {
+          if (gear.id !== getAircraft().id) return undefined;
+          const key = `${gear.id}:${gear.pos.toFixed(4)}`;
+          if (key !== cacheKey) {
+            cacheKey = key;
+            cached = gear.poses();
+          }
+          const p = cached[node];
+          if (!p) return undefined;
+          const t = trs.get(node) ?? new C.TranslationRotationScale();
+          t.translation = new C.Cartesian3(p.t[0], p.t[1], p.t[2]);
+          t.rotation = new C.Quaternion(p.q[0], p.q[1], p.q[2], p.q[3]);
+          trs.set(node, t);
+          return t;
+        }, false);
+    }
     const nodes = [
       ...Object.values(ROTOR_PARTS)
         .flat()
         .flatMap((p) => [p.node, p.node + "_disc"]),
       ...Object.values(AFTERBURNER_NODES).flat(),
     ];
-    const bag: Record<string, C.CallbackProperty> = {};
     for (const node of nodes)
       bag[node] = new C.CallbackProperty(
         () => (this.aircraftId === getAircraft().id ? this.trs.get(node) : undefined),

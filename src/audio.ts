@@ -314,6 +314,55 @@ export class FlightAudio {
     osc.stop(t + 0.18);
   }
 
+  /** Landing gear motor / lock thunk (two soft low thuds). */
+  gearClunk() {
+    if (!this.ctx || !this.master || this.muted) return;
+    const ctx = this.ctx;
+    for (const [dt, f0] of [[0.01, 140], [0.12, 95]] as const) {
+      const t = ctx.currentTime + dt;
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(f0, t);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.5, t + 0.12);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+      osc.connect(g);
+      g.connect(this.master);
+      osc.onended = () => {
+        osc.disconnect();
+        g.disconnect();
+      };
+      osc.start(t);
+      osc.stop(t + 0.16);
+    }
+  }
+
+  /** Gear-up warning: two short high beeps. */
+  gearWarning() {
+    if (!this.ctx || !this.master || this.muted) return;
+    const ctx = this.ctx;
+    for (const dt of [0.01, 0.22]) {
+      const t = ctx.currentTime + dt;
+      const osc = ctx.createOscillator();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(1180, t);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+      osc.connect(g);
+      g.connect(this.master);
+      osc.onended = () => {
+        osc.disconnect();
+        g.disconnect();
+      };
+      osc.start(t);
+      osc.stop(t + 0.16);
+    }
+  }
+
   /** Diagnostics for tests: context state, master gain, and the RMS level the
    * analyser on the master bus currently reads. */
   debug() {

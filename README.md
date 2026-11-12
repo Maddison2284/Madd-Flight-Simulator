@@ -91,6 +91,10 @@ Phone flight mode defaults to a compact speed/altitude/heading/clearance strip, 
 
 **W** pushes down and **S** pulls up about the aircraft’s own axis. Upright, W lowers the nose; inverted, that same push raises the nose relative to the ground. The arrow-key and touch-stick aircraft-relative mappings are unchanged.
 
+### Landing gear
+
+The Stealth Fighter's landing gear retracts: press **G** or tap **GEAR** to raise or lower it. The main legs fold into the belly and the nose leg folds forward over about 1.6 s, then the doors close; retracted gear trims a little drag. The gear starts down on the ground and up when a flight starts more than about 500 ft above the ground, and it is locked down while on the ground. The instrument strip shows three gear lights (green = down, red = moving, dark = up) and the phone strip shows GEAR DN / UP. Descending below about 500 ft with the gear up sounds a warning and shows **GEAR UP**; on a slow, low approach the gear extends automatically. The other aircraft keep G for cycling gauge size: their models have fixed or non-separable gear.
+
 ### Arcade speed boost
 
 Choose a departure airspeed up to about **2,300 mph** (2,000 kt); speeds above 480 kt (about 550 mph) automatically enable Boost. During flight press **B** or tap **Boost** to toggle arcade thrust and a higher speed ceiling (about 2,400 mph). Raise throttle to accelerate. Switching Boost off decelerates gradually toward normal jet speeds. This mode is deliberately for fun rather than realistic Learjet performance.
